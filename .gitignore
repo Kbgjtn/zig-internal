@@ -1,0 +1,14 @@
+# Zig build output
+.zig-cache
+zig-out/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+
+# Logs
+*.log
