@@ -58,27 +58,14 @@ const builtin = @import("builtin");
 //  24/6 = 4
 //  3 bytes (24 bits) becomes 4 Base64 characters (4 x 6 bit).
 
-const B64_BIT_SIZE: u8 = 0x3F;
+const Mask6: u8 = 0x3F;
+const B64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 pub const Encoder = struct {
-    _table: *const [64]u8,
-
-    pub fn init() Encoder {
-        return Encoder{
-            ._table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
-        };
-    }
-
-    // Validate:
-    // * input length % 4 == 0 (decoder)
-    // * only valid Base64 characters
-    // * padding only at end
-    // * no more than 2 "="
-    // * "=" only allowed in last 2 positions
-    pub fn encode_into(self: *const Encoder, out: []u8, in: []const u8) !usize {
+    pub fn encode_into(out: []u8, in: []const u8) !usize {
         if (in.len == 0) return 0;
 
-        const required = _calculate_encode_length(in);
+        const required = encodedLength(in.len);
         if (out.len != required) return error.InvalidBufferSize;
 
         var i: usize = 0;
@@ -94,10 +81,11 @@ pub const Encoder = struct {
                 (@as(u32, b2) << 8) |
                 (@as(u32, b3));
 
-            out[o] = self._table[(block >> 18) & B64_BIT_SIZE];
-            out[o + 1] = self._table[(block >> 12) & B64_BIT_SIZE];
-            out[o + 2] = self._table[(block >> 6) & B64_BIT_SIZE];
-            out[o + 3] = self._table[block & B64_BIT_SIZE];
+            // 24-bit block split into four 6-bit indices
+            out[o + 0] = B64_ALPHABET[(block >> 18) & Mask6];
+            out[o + 1] = B64_ALPHABET[(block >> 12) & Mask6];
+            out[o + 2] = B64_ALPHABET[(block >> 6) & Mask6];
+            out[o + 3] = B64_ALPHABET[block & Mask6];
 
             i += 3;
             o += 4;
@@ -109,8 +97,8 @@ pub const Encoder = struct {
             const b1 = in[i];
             const block: u32 = (@as(u32, b1) << 16);
 
-            out[o] = self._table[(block >> 18) & B64_BIT_SIZE];
-            out[o + 1] = self._table[(block >> 12) & B64_BIT_SIZE];
+            out[o] = B64_ALPHABET[(block >> 18) & Mask6];
+            out[o + 1] = B64_ALPHABET[(block >> 12) & Mask6];
             out[o + 2] = '=';
             out[o + 3] = '=';
         } else if (remaining == 2) {
@@ -120,34 +108,27 @@ pub const Encoder = struct {
                 (@as(u32, b1) << 16) |
                 (@as(u32, b2) << 8);
 
-            out[o] = self._table[(block >> 18) & B64_BIT_SIZE];
-            out[o + 1] = self._table[(block >> 12) & B64_BIT_SIZE];
-            out[o + 2] = self._table[(block >> 6) & B64_BIT_SIZE];
+            out[o] = B64_ALPHABET[(block >> 18) & Mask6];
+            out[o + 1] = B64_ALPHABET[(block >> 12) & Mask6];
+            out[o + 2] = B64_ALPHABET[(block >> 6) & Mask6];
             out[o + 3] = '=';
         }
         return required;
     }
 
     pub fn encode(
-        self: Encoder,
         allocator: std.mem.Allocator,
         in: []const u8,
     ) ![]u8 {
-        const size = _calculate_encode_length(in);
+        const size = encodedLength(in.len);
         const out = try allocator.alloc(u8, size);
+        const n = try encode_into(out, in);
         errdefer allocator.free(out);
-
-        const n = try self.encode_into(out, in);
         return out[0..n];
-    }
-
-    fn _calculate_encode_length(in: []const u8) usize {
-        if (in.len == 0) return 0;
-        return ((in.len + 2) / 3) * 4;
     }
 };
 
-const DecoderError = error{
+pub const DecodeError = error{
     InvalidLength,
     InvalidCharacter,
     InvalidPadding,
@@ -155,54 +136,26 @@ const DecoderError = error{
 };
 
 pub const Decoder = struct {
-    // For valid input:
-    // decode(encode(x)) == x
-    // For invalid input:
-    // * return error
-    // * never panic
-    // * never read out of bounds
-    // * never write out of bounds
+    const table = build_table();
+    const InvalidValue: u8 = 0xFF;
 
-    _table: [256]u8,
-
-    pub fn init() Decoder {
-        var table: [256]u8 = undefined;
-        @memset(&table, 255);
-
-        var i: u8 = 0;
-
-        while (i < 26) : (i += 1) {
-            table['A' + i] = i;
-            table['a' + i] = i + 26;
+    fn build_table() [256]u8 {
+        var t = [_]u8{255} ** 256;
+        for (B64_ALPHABET, 0..) |c, i| {
+            t[c] = @intCast(i);
         }
-
-        i = 0;
-        while (i < 10) : (i += 1) {
-            table['0' + i] = i + 52;
-        }
-
-        table['+'] = 62;
-        table['/'] = 63;
-
-        return Decoder{ ._table = table };
+        return t;
     }
 
     pub fn decode_into(
-        self: *const Decoder,
         out: []u8,
         in: []const u8,
-    ) DecoderError!usize {
-        // if (in.len == 0) return 0;
-        if (in.len % 4 != 0) return DecoderError.InvalidLength;
-
-        // var padding: usize = 0;
-
-        // if (in.len >= 2 and in[in.len - 1] == '=') padding += 1;
-        // if (in.len >= 2 and in[in.len - 2] == '=') padding += 1;
+    ) DecodeError!usize {
+        if (in.len % 4 != 0) return error.InvalidLength;
 
         const out_length = decodedLength(in);
         if (out_length == 0) return 0;
-        if (out.len < out_length) return DecoderError.InvalidBufferSize;
+        if (out.len < out_length) return error.InvalidBufferSize;
 
         const blocks = in.len / 4;
         if (blocks == 0) return 0;
@@ -212,78 +165,25 @@ pub const Decoder = struct {
 
         // fast path
         for (0..last_block_index) |block_index| {
-            // std.debug.print("fast path hit\n", .{});
             const i = block_index * 4;
 
-            const c1 = in[i];
+            const c1 = in[i + 0];
             const c2 = in[i + 1];
             const c3 = in[i + 2];
             const c4 = in[i + 3];
 
             // No '=' allowed here
-            if (c1 == '=' or c2 == '=' or c3 == '=' or c4 == '=')
+            if (c1 == '=' or c2 == '=' or c3 == '=' or c4 == '=') {
                 return error.InvalidPadding;
+            }
 
-            const v1 = self._table[c1];
-            const v2 = self._table[c2];
-            const v3 = self._table[c3];
-            const v4 = self._table[c4];
+            const v1 = table[c1];
+            const v2 = table[c2];
+            const v3 = table[c3];
+            const v4 = table[c4];
 
-            if (v1 == 255 or v2 == 255 or v3 == 255 or v4 == 255)
+            if (v1 == 255 or v2 == 255 or v3 == 255 or v4 == 255) {
                 return error.InvalidCharacter;
-
-            const block: u32 =
-                (@as(u32, v1) << 18) |
-                (@as(u32, v2) << 12) |
-                (@as(u32, v3) << 6) |
-                (@as(u32, v4));
-
-            out[o] = @intCast((block >> 16) & 0xFF);
-            out[o + 1] = @intCast((block >> 8) & 0xFF);
-            out[o + 2] = @intCast(block & 0xFF);
-
-            o += 3;
-        }
-
-        // slow path: last block
-        {
-            // std.debug.print("slow path hit\n", .{});
-            const i = last_block_index * 4;
-            const c1 = in[i];
-            const c2 = in[i + 1];
-            const c3 = in[i + 2];
-            const c4 = in[i + 3];
-
-            if (c1 == '=' or c2 == '=')
-                return error.InvalidPadding;
-
-            const v1 = self._table[c1];
-            const v2 = self._table[c2];
-
-            if (v1 == 255 or v2 == 255)
-                return error.InvalidCharacter;
-
-            var v3: u8 = 0;
-            var v4: u8 = 0;
-            var bytes_to_write: usize = 3;
-
-            if (c3 == '=') {
-                if (c4 != '=')
-                    return error.InvalidPadding;
-
-                bytes_to_write = 1;
-            } else {
-                v3 = self._table[c3];
-                if (v3 == 255)
-                    return error.InvalidCharacter;
-
-                if (c4 == '=') {
-                    bytes_to_write = 2;
-                } else {
-                    v4 = self._table[c4];
-                    if (v4 == 255)
-                        return error.InvalidCharacter;
-                }
             }
 
             const block: u32 =
@@ -292,14 +192,70 @@ pub const Decoder = struct {
                 (@as(u32, v3) << 6) |
                 (@as(u32, v4));
 
-            if (bytes_to_write >= 1)
-                out[o] = @intCast((block >> 16) & 0xFF);
+            out[o + 0] = @intCast((block >> 16) & 0xFF);
+            out[o + 1] = @intCast((block >> 8) & 0xFF);
+            out[o + 2] = @intCast(block & 0xFF);
 
-            if (bytes_to_write >= 2)
-                out[o + 1] = @intCast((block >> 8) & 0xFF);
+            o += 3;
+        }
 
-            if (bytes_to_write == 3)
-                out[o + 2] = @intCast(block & 0xFF);
+        // slow path: last block
+        {
+            const i = last_block_index * 4;
+            const c1 = in[i + 0];
+            const c2 = in[i + 1];
+            const c3 = in[i + 2];
+            const c4 = in[i + 3];
+
+            if (c1 == '=' or c2 == '=')
+                return error.InvalidPadding;
+
+            const v1 = table[c1];
+            const v2 = table[c2];
+
+            if (v1 == 255 or v2 == 255)
+                return error.InvalidCharacter;
+
+            var v3: u8 = 0;
+            var v4: u8 = 0;
+            const is_c3_padded = c3 == '=';
+            const is_c4_padded = c4 == '=';
+
+            if (is_c3_padded and !is_c4_padded) {
+                return error.InvalidPadding;
+            }
+
+            // Padding cases
+            const bytes_to_write: usize = if (is_c3_padded) 1 else if (is_c4_padded) 2 else 3;
+
+            // Decode non-padding characters
+            if (!is_c3_padded) {
+                v3 = table[c3];
+                if (v3 == 255) return error.InvalidCharacter;
+            }
+
+            if (!is_c4_padded) {
+                v4 = table[c4];
+                if (v4 == 255) return error.InvalidCharacter;
+            }
+
+            const block: u32 =
+                (@as(u32, v1) << 18) |
+                (@as(u32, v2) << 12) |
+                (@as(u32, v3) << 6) |
+                (@as(u32, v4));
+
+            if (bytes_to_write >= 1) {
+                out[o] = @intCast((block >> 16) & 255);
+            }
+
+            if (bytes_to_write >= 2) {
+                out[o + 1] = @intCast((block >> 8) & 255);
+            }
+
+            if (bytes_to_write == 3) {
+                out[o + 2] = @intCast(block & 255);
+            }
 
             o += bytes_to_write;
         }
@@ -307,10 +263,10 @@ pub const Decoder = struct {
         return o;
     }
 
-    pub fn decode(self: *const Decoder, allocator: std.mem.Allocator, in: []const u8) ![]u8 {
+    pub fn decode(allocator: std.mem.Allocator, in: []const u8) ![]u8 {
         const size = decodedLength(in);
         const out = try allocator.alloc(u8, size);
-        const n = try self.decode_into(out, in);
+        const n = try decode_into(out, in);
         errdefer allocator.free(out);
         return out[0..n];
     }
@@ -334,9 +290,6 @@ test "Base64 decode" {
 
     const allocator = std.testing.allocator;
 
-    const decoder = Decoder.init();
-    const encoder = Encoder.init();
-
     var i: usize = 0;
     while (i < 10_000) : (i += 1) {
         const size = random.intRangeAtMost(usize, 0, 4096);
@@ -351,18 +304,18 @@ test "Base64 decode" {
         // std.debug.print("encoded len = {}\n", .{encoded.len});
         defer allocator.free(encoded);
 
-        _ = try encoder.encode_into(encoded, input);
+        _ = try Encoder.encode_into(encoded, input);
 
         // Calculate decoded size
         const decoded_len = decodedLength(encoded);
         const decoded = try allocator.alloc(u8, decoded_len);
         defer allocator.free(decoded);
 
-        const written = try decoder.decode_into(decoded, encoded);
+        const written = try Decoder.decode_into(decoded, encoded);
         try std.testing.expectEqual(input.len, written);
         try std.testing.expectEqualSlices(u8, input, decoded);
 
-        const decoded2 = try decoder.decode(allocator, encoded);
+        const decoded2 = try Decoder.decode(allocator, encoded);
         defer allocator.free(decoded2);
         try std.testing.expectEqual(input.len, decoded2.len);
         try std.testing.expectEqualSlices(u8, input, decoded2);
@@ -371,34 +324,30 @@ test "Base64 decode" {
 
 fn expectEncode(
     allocator: std.mem.Allocator,
-    b64: *const Encoder,
-    input: []const u8,
+    in: []const u8,
     expected: []const u8,
 ) !void {
-    const encoded = try b64.encode(allocator, input);
-    defer allocator.free(encoded);
-    try std.testing.expectEqualStrings(expected, encoded);
+    const out = try Encoder.encode(allocator, in);
+    defer allocator.free(out);
+    try std.testing.expectEqualStrings(expected, out);
 }
 
 test "Base64 encode" {
     const allocator = std.testing.allocator;
-    const base64 = Encoder.init();
-
-    try expectEncode(allocator, &base64, "", "");
-    try expectEncode(allocator, &base64, "0", "MA==");
-    try expectEncode(allocator, &base64, "foo", "Zm9v");
+    try expectEncode(allocator, "", "");
+    try expectEncode(allocator, "0", "MA==");
+    try expectEncode(allocator, "foo", "Zm9v");
 }
 
 test "Base64 encode binary data compare to std.base64" {
     const allocator = std.testing.allocator;
-    const base64 = Encoder.init();
 
     const data = [_]u8{
         0x66,
         0x6F,
         0x6F,
     };
-    const result = try base64.encode(allocator, &data);
+    const result = try Encoder.encode(allocator, &data);
     defer allocator.free(result);
 
     // verify using std.base64
@@ -422,13 +371,12 @@ test "fuzz: Base64 encoder" {
 
     var i: usize = 0;
     const random = prng.random();
-    const base64 = Encoder.init();
 
     while (i < 100_000) : (i += 1) {
         const len = random.intRangeLessThan(usize, 0, input_buffer.len);
         random.bytes(input_buffer[0..len]);
 
-        const encoded = try base64.encode(allocator, input_buffer[0..len]);
+        const encoded = try Encoder.encode(allocator, input_buffer[0..len]);
         defer allocator.free(encoded);
 
         const decoded_buffer = try allocator.alloc(u8, len);
