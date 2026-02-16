@@ -306,6 +306,14 @@ pub const Decoder = struct {
 
         return o;
     }
+
+    pub fn decode(self: *const Decoder, allocator: std.mem.Allocator, in: []const u8) ![]u8 {
+        const size = decodedLength(in);
+        const out = try allocator.alloc(u8, size);
+        const n = try self.decode_into(out, in);
+        errdefer allocator.free(out);
+        return out[0..n];
+    }
 };
 
 pub fn encodedLength(input_len: usize) usize {
@@ -350,9 +358,14 @@ test "Base64 decode" {
         const decoded = try allocator.alloc(u8, decoded_len);
         defer allocator.free(decoded);
 
-        const written = decoder.decode_into(decoded, encoded);
+        const written = try decoder.decode_into(decoded, encoded);
         try std.testing.expectEqual(input.len, written);
         try std.testing.expectEqualSlices(u8, input, decoded);
+
+        const decoded2 = try decoder.decode(allocator, encoded);
+        defer allocator.free(decoded2);
+        try std.testing.expectEqual(input.len, decoded2.len);
+        try std.testing.expectEqualSlices(u8, input, decoded2);
     }
 }
 
