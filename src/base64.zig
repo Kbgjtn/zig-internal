@@ -57,41 +57,28 @@ const std = @import("std");
 //  24/6 = 4
 //  3 bytes (24 bits) becomes 4 Base64 characters (4 x 6 bit).
 
-const Allocator = std.mem.Allocator;
-const _max_bit: u8 = 0x3F;
+const BASE64_MAX_BIT_SIZE: u8 = 0x3F;
 
-const Base64 = struct {
+pub const Encoder = struct {
     _table: *const [64]u8,
 
-    pub fn init() Base64 {
-        const upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-        const lower = "abcdefghijklmnopqrstuvwxyz";
-        const numbers_symb = "0123456789+/";
-
-        return Base64{
-            ._table = upper ++ lower ++ numbers_symb,
+    pub fn init() Encoder {
+        return Encoder{
+            ._table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
         };
     }
 
-    pub fn encode(
-        self: Base64,
-        allocator: Allocator,
-        in: []const u8,
-    ) ![]u8 {
-        // Validate:
-        // * input length % 4 == 0 (decoder)
-        // * only valid Base64 characters
-        // * padding only at end
-        // * no more than 2 "="
-        // * "=" only allowed in last 2 positions
+    // Validate:
+    // * input length % 4 == 0 (decoder)
+    // * only valid Base64 characters
+    // * padding only at end
+    // * no more than 2 "="
+    // * "=" only allowed in last 2 positions
+    pub fn encode_into(self: *const Encoder, out: []u8, in: []const u8) !usize {
+        if (in.len == 0) return 0;
 
-        if (in.len < 1) {
-            return "";
-        }
-
-        // Allocate size for encoder
-        const out_len = _calculate_encode_length(in);
-        var out = try allocator.alloc(u8, out_len);
+        const required = _calculate_encode_length(in);
+        if (out.len != required) return error.InvalidBufferSize;
 
         var i: usize = 0;
         var o: usize = 0;
@@ -106,10 +93,10 @@ const Base64 = struct {
                 (@as(u32, b2) << 8) |
                 (@as(u32, b3));
 
-            out[o] = self._table[(block >> 18) & _max_bit];
-            out[o + 1] = self._table[(block >> 12) & _max_bit];
-            out[o + 2] = self._table[(block >> 6) & _max_bit];
-            out[o + 3] = self._table[block & _max_bit];
+            out[o] = self._table[(block >> 18) & BASE64_MAX_BIT_SIZE];
+            out[o + 1] = self._table[(block >> 12) & BASE64_MAX_BIT_SIZE];
+            out[o + 2] = self._table[(block >> 6) & BASE64_MAX_BIT_SIZE];
+            out[o + 3] = self._table[block & BASE64_MAX_BIT_SIZE];
 
             i += 3;
             o += 4;
@@ -120,77 +107,71 @@ const Base64 = struct {
         if (remaining == 1) {
             const b1 = in[i];
             const block: u32 = (@as(u32, b1) << 16);
-            out[o] = self._table[(block >> 18) & _max_bit];
-            out[o + 1] = self._table[(block >> 12) & _max_bit];
+
+            out[o] = self._table[(block >> 18) & BASE64_MAX_BIT_SIZE];
+            out[o + 1] = self._table[(block >> 12) & BASE64_MAX_BIT_SIZE];
             out[o + 2] = '=';
             out[o + 3] = '=';
         } else if (remaining == 2) {
             const b1 = in[i];
             const b2 = in[i + 1];
+            const block: u32 =
+                (@as(u32, b1) << 16) |
+                (@as(u32, b2) << 8);
 
-            const block: u32 = (@as(u32, b1) << 16) | (@as(u32, b2) << 8);
-
-            out[o] = self._table[(block >> 18) & _max_bit];
-            out[o + 1] = self._table[(block >> 12) & _max_bit];
-            out[o + 2] = self._table[(block >> 6) & _max_bit];
+            out[o] = self._table[(block >> 18) & BASE64_MAX_BIT_SIZE];
+            out[o + 1] = self._table[(block >> 12) & BASE64_MAX_BIT_SIZE];
+            out[o + 2] = self._table[(block >> 6) & BASE64_MAX_BIT_SIZE];
             out[o + 3] = '=';
         }
-
-        return out;
+        return required;
     }
 
-    fn _calculate_encode_length(v: []const u8) usize {
-        if (v.len < 3) {
-            return 4;
-        }
-        return ((v.len + 2) / 3) * 4;
+    pub fn encode(
+        self: Encoder,
+        allocator: std.mem.Allocator,
+        in: []const u8,
+    ) ![]u8 {
+        const size = _calculate_encode_length(in);
+        const out = try allocator.alloc(u8, size);
+        errdefer allocator.free(out);
+
+        const n = try self.encode_into(out, in);
+        return out[0..n];
     }
 
-    fn _calculate_max_decode_length(v: []const u8) usize {
-        if (v.len < 4) {
-            return 3;
-        }
-
-        var max_size: usize = (v.len / 4) * 3;
-        var i: usize = v.len - 1;
-
-        while (i > 0) : (i -= 1) {
-            if (v[i] == '=') {
-                max_size -= 1;
-            } else break;
-        }
-        return max_size;
+    fn _calculate_encode_length(in: []const u8) usize {
+        if (in.len == 0) return 0;
+        return ((in.len + 2) / 3) * 4;
     }
 
-    pub fn _char_at(self: Base64, index: usize) u8 {
+    pub fn _char_at(self: Encoder, index: usize) u8 {
         return self._table[index];
     }
 };
 
-const testing = std.testing;
-
 fn expectEncode(
-    allocator: Allocator,
-    b64: *const Base64,
+    allocator: std.mem.Allocator,
+    b64: *const Encoder,
     input: []const u8,
     expected: []const u8,
 ) !void {
     const encoded = try b64.encode(allocator, input);
     defer allocator.free(encoded);
-    try testing.expectEqualStrings(expected, encoded);
+    try std.testing.expectEqualStrings(expected, encoded);
 }
 
 test "Base64 encode" {
-    const allocator = testing.allocator;
-    const base64 = Base64.init();
+    const allocator = std.testing.allocator;
+    const base64 = Encoder.init();
 
     try expectEncode(allocator, &base64, "", "");
     try expectEncode(allocator, &base64, "foo", "Zm9v");
 }
 
 test "encode binary data" {
-    const allocator = testing.allocator;
-    const base64 = Base64.init();
+    const allocator = std.testing.allocator;
+    const base64 = Encoder.init();
 
     const data = [_]u8{
         0x66,
@@ -204,5 +185,30 @@ test "encode binary data" {
     var buf: [8]u8 = undefined;
     const expected = std.base64.standard.Encoder.encode(&buf, &data);
 
-    try testing.expectEqualStrings(expected, result);
+    try std.testing.expectEqualStrings(expected, result);
+}
+
+test "fuzz base64 encoder" {
+    const allocator = std.testing.allocator;
+    var prng = std.Random.DefaultPrng.init(0);
+
+    var input_buffer: [1024]u8 = undefined;
+
+    var i: usize = 0;
+    const random = prng.random();
+    const base64 = Encoder.init();
+
+    while (i < 100_000) : (i += 1) {
+        const len = random.intRangeLessThan(usize, 0, input_buffer.len);
+        random.bytes(input_buffer[0..len]);
+
+        const encoded = try base64.encode(allocator, input_buffer[0..len]);
+        defer allocator.free(encoded);
+
+        const decoded_buffer = try allocator.alloc(u8, len);
+        try std.base64.standard.Decoder.decode(decoded_buffer, encoded);
+        defer allocator.free(decoded_buffer);
+
+        try std.testing.expectEqualSlices(u8, input_buffer[0..len], decoded_buffer);
+    }
 }
