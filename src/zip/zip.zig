@@ -251,6 +251,31 @@ const EndOfCentralDirectoryRecord = extern struct {
         std.debug.print(".comment_len {d}\n", .{self.comment_len});
     }
 
+    pub fn offset(self: EndOfCentralDirectoryRecord) usize {
+        return self.central_directory_size + self.central_directory_offset;
+    }
+
+    pub fn readComment(self: EndOfCentralDirectoryRecord, file_reader: *std.fs.File.Reader, file_size: u64, buf: []u8) ![]u8 {
+        if (self.comment_len == 0) return buf[0..0];
+
+        if (buf.len < self.comment_len) return error.BufferTooSmall;
+
+        const eocd_offset = self.offset();
+
+        const comment_offset = eocd_offset + eocd_size;
+        const comment_end = try std.math.add(u64, comment_offset, self.comment_len);
+
+        if (comment_end != file_size) {
+            return error.InvalidZipStructure;
+        }
+
+        try file_reader.seekTo(comment_offset);
+
+        const out = buf[0..self.comment_len];
+        try file_reader.interface.readSliceAll(out);
+        return out;
+    }
+
     pub fn FindFile(f: *std.fs.File.Reader) !EndOfCentralDirectoryRecord {
         const file_size: u64 = try f.getSize();
         if (file_size < eocd_size) {
@@ -377,9 +402,20 @@ test "eocd_structure" {
 
     var buf: [1024]u8 = undefined;
     var freader = file.reader(&buf);
+    const file_size: u64 = try freader.getSize();
 
     const eocd_record = try EndOfCentralDirectoryRecord.FindFile(&freader);
+    std.debug.print("eocd_offset: {}\n", .{eocd_record.offset()});
     eocd_record.print();
+
+    const comment_buffer2 = try std.testing.allocator.alloc(u8, eocd_record.comment_len);
+    defer std.testing.allocator.free(comment_buffer2);
+    const out2 = try eocd_record.readComment(&freader, file_size, comment_buffer2);
+    std.debug.print("comment: {s}\n", .{out2});
+
+    var comment_buffer: [256]u8 = undefined;
+    const out = try eocd_record.readComment(&freader, file_size, &comment_buffer);
+    std.debug.print("comment: {s}\n", .{out});
 }
 
 test {
