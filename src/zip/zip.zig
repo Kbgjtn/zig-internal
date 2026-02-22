@@ -409,8 +409,6 @@ test "eocd64_locator_structure" {
 // NOT include the leading 12 bytes.
 // Size = SizeOfFixedFields + SizeOfVariableData - 12.
 const EndOfCentralDirectoryRecord64 = extern struct {
-    signature: u32 align(1), // 0X06_06_4B_50
-    record_size: u64 align(1),
     version_made_by: Version align(1),
     version_needed_to_extract: u16 align(1),
     disk_number: u32 align(1),
@@ -420,11 +418,61 @@ const EndOfCentralDirectoryRecord64 = extern struct {
     central_directory_size: u64 align(1),
     central_directory_offset: u64 align(1),
     // ...
-    // Data sector (optional)
+    // Data sector (variable size) [optional]
+
+    const header64 = extern struct {
+        signature: u32 align(1),
+        record_size: u64 align(1),
+    };
+
+    const signature_marker: u32 = 0x06_06_4b_50;
+    const size: u64 = 44;
+
+    pub fn read(reader: *std.fs.File.Reader, file_size: u64, offset: u64) !EndOfCentralDirectoryRecord64 {
+        try reader.seekTo(offset);
+
+        const header = try reader.interface.takeStruct(
+            header64,
+            .little,
+        );
+
+        if (header.signature != signature_marker) {
+            return error.Zip64InvalidSignature;
+        }
+
+        if (header.record_size < size) {
+            return error.Zip64Malformed;
+        }
+
+        const total_size: u64 = std.math.add(u64, 12, header.record_size) catch return error.Zip64SizeOverflow;
+        if (offset + total_size > file_size) {
+            return error.Zip64SizeOverflow;
+        }
+
+        const record = try reader.interface.takeStruct(EndOfCentralDirectoryRecord64, .little);
+
+        // check if there's extensible data record remaining
+        if (header.record_size > size) {
+            const remaining = header.record_size - size;
+            try reader.seekBy(@as(i64, @intCast(remaining)));
+        }
+
+        if (record.disk_number != 0 or
+            record.central_directory_disk_number != 0 or
+            record.record_count_disk != record.record_count_total)
+        {
+            return error.Zip64UnsupportedMultiDisk;
+        }
+
+        if (record.central_directory_offset + record.central_directory_size > offset) {
+            return error.ZipInvalidLayout;
+        }
+
+        return record;
+    }
+
     pub fn print(self: EndOfCentralDirectoryRecord64) void {
         std.debug.print("End Of Central Directory Record ZIP64\n", .{});
-        std.debug.print("signature 0x{x}\n", .{self.signature});
-        std.debug.print("record_size {d}\n", .{self.record_size});
         std.debug.print("version_made_by {}\n", .{self.version_made_by});
         std.debug.print("version_needed_to_extract {}\n", .{self.version_needed_to_extract});
         std.debug.print("disk_number {}\n", .{self.disk_number});
