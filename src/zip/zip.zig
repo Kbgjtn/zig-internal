@@ -2,6 +2,7 @@
 /// - https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT
 /// -
 const std = @import("std");
+const time = @import("time.zig");
 
 // A ZIP file is correctly identified by the presence of an EOCDR (`END OF
 // CENTRAL DIRECTORY RECORD`) which is located at the end of the archive
@@ -81,34 +82,6 @@ pub const CompressionMethod = enum(u16) {
     _,
 };
 
-pub const DosTime = struct {
-    hour: u8,
-    minute: u8,
-    second: u8,
-};
-
-pub const DosDate = struct {
-    year: u16,
-    month: u8,
-    day: u8,
-};
-
-pub fn decodeDOSTime(raw: u16) DosTime {
-    return .{
-        .hour = @as(u8, @truncate((raw & 0b00000_000000_11111) * 2)),
-        .minute = @as(u8, @truncate((raw >> 5) & 0b111111)),
-        .second = @as(u8, @truncate((raw >> 11) & 0b11111)),
-    };
-}
-
-pub fn decodeDosDate(raw: u16) DosDate {
-    return DosDate{
-        .day = @as(u8, @truncate(raw & 0b11111)),
-        .month = @as(u8, @truncate((raw >> 5) & 0b1111)),
-        .year = 1980 + ((raw >> 9) & 0b1111111),
-    };
-}
-
 // File Headers
 
 /// The Local File Header of each entry represents information
@@ -144,8 +117,8 @@ pub const LocalFileHeader = extern struct {
         std.debug.print("  signature 0x{x}\n", .{self.signature});
         std.debug.print("  version {d:.2}\n", .{@as(f32, @floatFromInt(self.version)) / 10.0});
         std.debug.print("  flags {}\n", .{self.flags});
-        std.debug.print("  last_modification_time {}\n", .{decodeDOSTime(self.last_modification_time)});
-        std.debug.print("  last_modification_date {}\n", .{decodeDosDate(self.last_modification_date)});
+        std.debug.print("  last_modification_time {}\n", .{time.decodeDOSTime(self.last_modification_time)});
+        std.debug.print("  last_modification_date {}\n", .{time.decodeDosDate(self.last_modification_date)});
         std.debug.print("  crc-32 checksum {d}\n", .{self.crc32});
         std.debug.print("  compressed_size {d}\n", .{self.compressed_size});
         std.debug.print("  uncompressed_size {d}\n", .{self.uncompressed_size});
@@ -178,6 +151,79 @@ test "local file header structure" {
 const Version = packed struct(u16) {
     spec_version: u8, // lower byte
     os: u8, // upper byte
+};
+
+const FileData = struct {
+    header: LocalFileHeader,
+    offset: u64,
+
+    pub fn parseExtra(extra: []const u8) !ExtraMetadata {
+        var meta = ExtraMetadata{};
+        var offset: usize = 0;
+
+        while (offset < extra.len) {
+            if (offset + 4 > extra.len) {
+                return error.ZipExtraInvalid;
+            }
+
+            const id = std.mem.readInt(u16, extra[offset..][0..2], .little);
+            const size = std.mem.readInt(u16, extra[offset + 2 ..][0..2], .little);
+
+            offset += 4;
+
+            if (offset + size > extra.len) {
+                return error.ZipExtraInvalid;
+            }
+
+            meta = meta;
+            // const data = extra[offset .. offset + size];
+            switch (id) {
+                // 0x0001 => try meta.parseZip64(data),
+                // 0x5455 => try meta.parseExtendedTimestamp(data),
+                // 0x7875 => try meta.parseUnixExtra(data),
+                else => {},
+            }
+
+            offset += size;
+        }
+
+        return meta;
+    }
+
+    pub fn read(
+        self: FileData,
+        stream: *std.fs.File.Reader,
+        buf: []u8,
+    ) ![]u8 {
+        if (buf.len < self.header.filename_len) {
+            return error.ZipInsufficientBuffer;
+        }
+
+        try stream.seekTo(self.offset + local_file_header_size);
+
+        const filename = buf[0..self.header.filename_len];
+        {
+            try stream.interface.readSliceAll(filename);
+        }
+
+        {
+            var extra_buf: [1024]u8 = undefined;
+            const extra = extra_buf[0..self.header.extra_len];
+            try stream.interface.readSliceAll(extra);
+
+            const extra_meta = try parseExtra(extra);
+            std.debug.print("extra: {}\n", .{extra_meta});
+        }
+
+        switch (self.header.compression_method) {
+            .store, .deflate => {},
+            else => return error.UnsupportedCompressionMethod,
+        }
+
+        return filename;
+    }
+
+    pub fn extract() !void {}
 };
 
 /// Central directory structure:
@@ -280,6 +326,98 @@ const max_comment_len: u32 = std.math.maxInt(u16);
 // [file entries...]
 // [Central Directory...]
 // [EOCD]
+// The classic EOCD Record uses 16-bit and 32-bit fields.
+// `u16` for record counts and `u32` for central directory
+// size and offset. The limits is max entries only up to (65_535),
+// max central directory size 4 GiB, and max offset 4 GiB.
+//
+// When any of those values exceed those limits, the specs says:
+// `Set the field to 0xFFFF or 0xFFFFFFFF and create the ZIP64
+// EOCD record.`
+//
+// TODO (dapa)
+// Flows for ZIP64:
+// - Parse the ZIP64 End of Central Directory Locator
+// - Use it to find the ZIP64 End of Central Directory Record
+// - Read the real 64-bit values from there
+
+// Overall .ZIP file format
+// [local file header 1]
+// [encryption header 1]
+// [file data 1]
+// [data descriptor 1]
+// .
+// .
+// .
+// [local file header n]
+// [encryption header n]
+// [file data n]
+// [data descriptor n]
+// [archive decryption header]
+// [archive extra data record]
+// [central directory header 1]
+// .
+// .
+// .
+// [central directory header n]
+// [zip64 end of central directory record]
+// [zip64 end of central directory locator]
+// [end of central directory record]
+
+const EndRecord64Locator = extern struct {
+    signature: u32 align(1),
+    central_directory_disk: u32 align(1),
+    central_directory_offset: u64 align(1),
+    total_disks: u32 align(1),
+
+    pub fn print(self: EndRecord64Locator) void {
+        std.debug.print("End Of Central Directory Record ZIP64 Locator\n", .{});
+        std.debug.print("signature 0x{x}\n", .{self.signature});
+        std.debug.print("cd_disk {}\n", .{self.central_directory_disk});
+        std.debug.print("cd_offset {}\n", .{self.central_directory_offset});
+        std.debug.print("total_disks {}\n", .{self.total_disks});
+    }
+};
+
+const eocd64_locator_signature: u32 = 0x50_4B_06_07;
+const eocd64_locator_size: usize = 20;
+
+test "eocd64_locator_structure" {
+    try std.testing.expectEqual(@sizeOf(EndRecord64Locator), eocd64_locator_size);
+    try std.testing.expectEqual(@bitSizeOf(EndRecord64Locator), eocd64_locator_size * 8);
+}
+
+// The value store into the "size of zip64 eocd record"
+// SHOULD be the size of the remaining record and SHOULD
+// NOT include the leading 12 bytes.
+// Size = SizeOfFixedFields + SizeOfVariableData - 12.
+const EndOfCentralDirectoryRecord64 = extern struct {
+    signature: u32 align(1), // 0X06_06_4B_50
+    record_size: u64 align(1),
+    version_made_by: Version align(1),
+    version_needed_to_extract: u16 align(1),
+    disk_number: u32 align(1),
+    central_directory_disk_number: u32 align(1),
+    record_count_disk: u64 align(1),
+    record_count_total: u64 align(1),
+    central_directory_size: u64 align(1),
+    central_directory_offset: u64 align(1),
+    // ...
+    // Data sector (optional)
+    pub fn print(self: EndOfCentralDirectoryRecord64) void {
+        std.debug.print("End Of Central Directory Record ZIP64\n", .{});
+        std.debug.print("signature 0x{x}\n", .{self.signature});
+        std.debug.print("record_size {d}\n", .{self.record_size});
+        std.debug.print("version_made_by {}\n", .{self.version_made_by});
+        std.debug.print("version_needed_to_extract {}\n", .{self.version_needed_to_extract});
+        std.debug.print("disk_number {}\n", .{self.disk_number});
+        std.debug.print("central_directory_disk_number {}\n", .{self.central_directory_disk_number});
+        std.debug.print("record_count_disk {}\n", .{self.record_count_disk});
+        std.debug.print("record_count_total {}\n", .{self.record_count_total});
+        std.debug.print("central_directory_size {}\n", .{self.central_directory_size});
+        std.debug.print("central_directory_offset {}\n", .{self.central_directory_offset});
+    }
+};
 
 const EndOfCentralDirectoryRecord = extern struct {
     signature: u32 align(1),
@@ -291,7 +429,7 @@ const EndOfCentralDirectoryRecord = extern struct {
     central_directory_offset: u32 align(1),
     comment_len: u16 align(1),
 
-    /// [4.4.1 General notes on fields](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT)
+    /// [4.4.1 General notes on fields] (https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT)
     /// 4.4.1.4  If one of the fields in the end of central directory
     /// record is too small to hold required data, the field SHOULD be
     /// set to -1 (0xFFFF or 0xFFFFFFFF) and the ZIP64 format record
@@ -300,8 +438,9 @@ const EndOfCentralDirectoryRecord = extern struct {
     /// 4.4.1.5  The end of central directory record and the Zip64 end
     /// of central directory locator record MUST reside on the same
     /// disk when splitting or spanning an archive.
-    pub fn isOverflowSentinels(self: EndOfCentralDirectoryRecord) bool {
+    pub fn requiresZip64(self: EndOfCentralDirectoryRecord) bool {
         return self.record_count_total == 0xFFFF or
+            self.record_count_disk == 0xFFFF or
             self.central_directory_size == 0xFFFFFFFF or
             self.central_directory_offset == 0xFFFFFFFF;
     }
@@ -316,6 +455,15 @@ const EndOfCentralDirectoryRecord = extern struct {
         std.debug.print(".central_directory_size {d}\n", .{self.central_directory_size});
         std.debug.print(".central_directory_offset {d}\n", .{self.central_directory_offset});
         std.debug.print(".comment_len {d}\n", .{self.comment_len});
+    }
+
+    fn validateSingleDisk(self: EndOfCentralDirectoryRecord) error{ZipUnsupportedMultiDisk}!void {
+        if (self.disk_number != 0 or
+            self.central_directory_disk_number != 0 or
+            self.record_count_disk != self.record_count_total)
+        {
+            return error.ZipUnsupportedMultiDisk;
+        }
     }
 
     pub fn getOffset(self: EndOfCentralDirectoryRecord) usize {
@@ -349,7 +497,14 @@ const EndOfCentralDirectoryRecord = extern struct {
         return out;
     }
 
-    pub fn Read(f: *std.fs.File.Reader) !EndOfCentralDirectoryRecord {
+    fn readZip64Locator(reader: *std.fs.File.Reader, eocd_offset: u64) !EndRecord64Locator {
+        try reader.seekTo(eocd_offset);
+    }
+
+    pub fn Read(f: *std.fs.File.Reader) !struct {
+        offset: u64,
+        record: EndOfCentralDirectoryRecord,
+    } {
         const file_size: u64 = try f.getSize();
         if (file_size < eocd_size) {
             return error.ZipNoEndRecord;
@@ -365,6 +520,8 @@ const EndOfCentralDirectoryRecord = extern struct {
         std.debug.print("file_size {}\n", .{file_size});
         std.debug.print("search_limit {}\n", .{search_limit});
         std.debug.print("max_record_len {}\n", .{max_record_len});
+
+        const base_file_offset = file_size - search_limit;
 
         while (comment_len <= max_comment_len) {
             const record_len = @as(usize, comment_len) + eocd_size;
@@ -384,7 +541,11 @@ const EndOfCentralDirectoryRecord = extern struct {
 
             if (isValidEndRecord(record_bytes, comment_len)) {
                 std.debug.print("comment_len {}\n", .{comment_len});
-                return parse(record_bytes);
+
+                return .{
+                    .record = parse(record_bytes),
+                    .offset = base_file_offset + record_offset,
+                };
             }
 
             comment_len += 1;
@@ -577,135 +738,96 @@ pub const ExtraMetadata = struct {
     }
 };
 
-const FileData = struct {
-    header: LocalFileHeader,
-    offset: u64,
-
-    pub fn parseExtra(extra: []const u8) !ExtraMetadata {
-        var meta = ExtraMetadata{};
-        var offset: usize = 0;
-
-        while (offset < extra.len) {
-            if (offset + 4 > extra.len) {
-                return error.ZipExtraInvalid;
-            }
-
-            const id = std.mem.readInt(u16, extra[offset..][0..2], .little);
-            const size = std.mem.readInt(u16, extra[offset + 2 ..][0..2], .little);
-
-            offset += 4;
-
-            if (offset + size > extra.len) {
-                return error.ZipExtraInvalid;
-            }
-
-            meta = meta;
-            // const data = extra[offset .. offset + size];
-            switch (id) {
-                // 0x0001 => try meta.parseZip64(data),
-                // 0x5455 => try meta.parseExtendedTimestamp(data),
-                // 0x7875 => try meta.parseUnixExtra(data),
-                else => {},
-            }
-
-            offset += size;
-        }
-
-        return meta;
-    }
-
-    pub fn read(
-        self: FileData,
-        stream: *std.fs.File.Reader,
-        buf: []u8,
-    ) ![]u8 {
-        if (buf.len < self.header.filename_len) {
-            return error.ZipInsufficientBuffer;
-        }
-
-        try stream.seekTo(self.offset + local_file_header_size);
-
-        const filename = buf[0..self.header.filename_len];
-        {
-            try stream.interface.readSliceAll(filename);
-        }
-
-        {
-            var extra_buf: [1024]u8 = undefined;
-            const extra = extra_buf[0..self.header.extra_len];
-            try stream.interface.readSliceAll(extra);
-
-            const extra_meta = try parseExtra(extra);
-            std.debug.print("extra: {}\n", .{extra_meta});
-        }
-
-        switch (self.header.compression_method) {
-            .store, .deflate => {},
-            else => return error.UnsupportedCompressionMethod,
-        }
-
-        return filename;
-    }
-
-    pub fn extract() !void {}
-};
-
-pub const EndOfCentralDirectoryRecord64_Locator = extern struct {};
-
 /// Iterator
 const Iterator = struct {
     reader: *std.fs.File.Reader,
-    eocdr: EndOfCentralDirectoryRecord,
-
     cd_index: u64 = 0,
     cd_offset: u64 = 0,
+    cd_size: u64 = 0,
+    total_entries: u64 = 0,
 
     pub fn init(reader: *std.fs.File.Reader) !Iterator {
-        const record = try EndOfCentralDirectoryRecord.Read(reader);
+        var oecd_offset: u64 = 0;
 
-        record.print();
+        {
+            const eocd = try EndOfCentralDirectoryRecord.Read(reader);
+            oecd_offset = eocd.offset;
 
-        if (record.isOverflowSentinels()) {
-            // Check 20 bytes before EOCD for ZIP64 Locator
-            // Signature: 0x07064b50
-            // if found:
-            // - Read the data locator
-            // - Seek to ZIP64 EOCD record
-            // - Override values
-            // if not found:
-            // - Either malformed ZIP
-            // - Or legal edge-case where value is exactly max
+            eocd.record.validateSingleDisk() catch |err| return err;
 
-            // NOTE (dapa):
-            // Also Important: Per-File ZIP64 Is Separate
-            // Even if archive is NOT ZIP64 at top-level,
-            // Individual files may still use ZIP64 extra (0x0001)
-            // if file size > 4GB.
-            // That is independent of EOCD.
-            // So you need two detection layers:
-            //
-            // Archive-level ZIP64 (EOCD overflow)
-            // Per-entry ZIP64 (CDFH size == 0xFFFFFFFF)
-            return error.Zip64_NotImplementedYet;
+            if (!eocd.record.requiresZip64()) {
+                return Iterator{
+                    .reader = reader,
+                    .cd_size = eocd.record.central_directory_size,
+                    .cd_offset = eocd.record.central_directory_offset,
+                    .total_entries = eocd.record.record_count_total,
+                };
+            }
+        }
+
+        if (oecd_offset < eocd64_locator_size) {
+            return error.ZipMalformed;
+        }
+
+        const locator_offset: usize = oecd_offset - eocd64_locator_size;
+        try reader.seekTo(locator_offset);
+        const locator = try reader.interface.takeStruct(EndRecord64Locator, .little);
+
+        // compare locator signature
+        if (locator.signature != std.mem.readInt(u32, &[_]u8{ 'P', 'K', 6, 7 }, .little)) {
+            return error.Zip64InvalidLocatorSign;
+        }
+
+        try reader.seekTo(locator.central_directory_offset);
+        const record64 = try reader.interface.takeStruct(EndOfCentralDirectoryRecord64, .little);
+
+        // Check 20 bytes before EOCD for ZIP64 Locator
+        // Signature: 0x07064b50
+        // if found:
+        // - Read the data locator
+        // - Seek to ZIP64 EOCD record
+        // - Override values
+        // if not found:
+        // - Either malformed ZIP
+        // - Or legal edge-case where value is exactly max
+
+        // NOTE (dapa):
+        // Also Important:
+        //
+        // Per-File ZIP64 Is Separate
+        // Even if archive is NOT ZIP64 at top-level,
+        // Individual files may still use ZIP64 extra (0x0001)
+        // if file size > 4GB.
+        // That is independent of EOCD.
+        //
+        // So you need two detection layers:
+        // - Archive-level ZIP64 (EOCD overflow)
+        // - Per-entry ZIP64 (CDFH size == 0xFFFFFFFF)
+        if (record64.signature != std.mem.readInt(u32, &[_]u8{ 'P', 'K', 6, 6 }, .little)) {
+            return error.Zip64InvalidSignature;
         }
 
         return Iterator{
-            .eocdr = record,
             .reader = reader,
-            .cd_offset = record.central_directory_offset,
+            .cd_index = 0,
+            .cd_offset = record64.central_directory_offset,
+            .cd_size = record64.central_directory_size,
+            .total_entries = record64.record_count_total,
         };
     }
 
     pub fn next(self: *Iterator) !?FileData {
-        if (self.cd_index == self.eocdr.record_count_total) {
+        if (self.cd_index == self.total_entries) {
             return null;
         }
 
         std.debug.print("current_cd_offset: {}\n", .{self.cd_offset});
 
         try self.reader.seekTo(self.cd_offset);
-
-        const cdfh = self.reader.interface.takeStruct(CentralDirectoryFileHeader, .little) catch |err| switch (err) {
+        const cdfh = self.reader.interface.takeStruct(
+            CentralDirectoryFileHeader,
+            .little,
+        ) catch |err| switch (err) {
             error.ReadFailed => return self.reader.err.?,
             error.EndOfStream => return error.EndOfStream,
         };
