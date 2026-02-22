@@ -455,6 +455,12 @@ const EndOfCentralDirectoryRecord64 = extern struct {
         if (header.record_size > size) {
             const remaining = header.record_size - size;
             try reader.seekBy(@as(i64, @intCast(remaining)));
+            // TODO (dapa)
+            // Parse The Extensible Data?
+            // unimplemented supported:
+            // Central directory encryption
+            // Strong encryption (spec 6.2+)
+            // PKWARE proprietary extensions
         }
 
         if (record.disk_number != 0 or
