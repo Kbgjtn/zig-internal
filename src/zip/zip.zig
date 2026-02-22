@@ -363,7 +363,6 @@ const max_comment_len: u32 = std.math.maxInt(u16);
 // [zip64 end of central directory record]
 // [zip64 end of central directory locator]
 // [end of central directory record]
-
 const EndRecord64Locator = extern struct {
     signature: u32 align(1),
     central_directory_disk: u32 align(1),
@@ -390,8 +389,8 @@ const EndRecord64Locator = extern struct {
     pub fn print(self: EndRecord64Locator) void {
         std.debug.print("End Of Central Directory Record ZIP64 Locator\n", .{});
         std.debug.print("signature 0x{x}\n", .{self.signature});
-        std.debug.print("cd_disk {}\n", .{self.central_directory_disk});
-        std.debug.print("cd_offset {}\n", .{self.central_directory_offset});
+        std.debug.print("central_directory_disk {}\n", .{self.central_directory_disk});
+        std.debug.print("central_directory_offset {}\n", .{self.central_directory_offset});
         std.debug.print("total_disks {}\n", .{self.total_disks});
     }
 };
@@ -420,6 +419,11 @@ const EndOfCentralDirectoryRecord64 = extern struct {
     // ...
     // Data sector (variable size) [optional]
 
+    /// 4.3.14.1 The value stored into the "size of zip64 end of central
+    ///          directory record" SHOULD be the size of the remaining
+    ///          record and SHOULD NOT include the leading 12 bytes.
+    ///
+    ///          Size = SizeOfFixedFields + SizeOfVariableData - 12.
     const header64 = extern struct {
         signature: u32 align(1),
         record_size: u64 align(1),
@@ -455,6 +459,7 @@ const EndOfCentralDirectoryRecord64 = extern struct {
         if (header.record_size > size) {
             const remaining = header.record_size - size;
             try reader.seekBy(@as(i64, @intCast(remaining)));
+
             // TODO (dapa)
             // Parse The Extensible Data?
             // unimplemented supported:
@@ -540,12 +545,32 @@ const EndOfCentralDirectoryRecord = extern struct {
         std.debug.print(".comment_len {d}\n", .{self.comment_len});
     }
 
-    fn validateSingleDisk(self: EndOfCentralDirectoryRecord) error{ZipUnsupportedMultiDisk}!void {
+    fn ensureSupportedFeatures(self: EndOfCentralDirectoryRecord, file_size: u64) error{
+        ZipSizeOverflow,
+        ZipArchiveEmpty,
+        ZipUnsupportedMultiDisk,
+    }!void {
         if (self.disk_number != 0 or
             self.central_directory_disk_number != 0 or
             self.record_count_disk != self.record_count_total)
         {
             return error.ZipUnsupportedMultiDisk;
+        }
+
+        if (self.central_directory_offset >= file_size or self.central_directory_size > file_size) {
+            return error.ZipSizeOverflow;
+        }
+
+        const end = std.math.add(u64, self.central_directory_offset, self.central_directory_size) catch {
+            return error.ZipSizeOverflow;
+        };
+
+        if (end > file_size) {
+            return error.ZipSizeOverflow;
+        }
+
+        if (self.record_count_total == 0) {
+            return error.ZipArchiveEmpty;
         }
     }
 
@@ -829,16 +854,33 @@ const Iterator = struct {
     cd_size: u64 = 0,
     total_entries: u64 = 0,
 
+    // read EOCD
+    // if requires ZIP64:
+    //     read locator
+    //     validate locator
+    //     read ZIP64 record
+    //     normalize values
+    // else:
+    //     use classic values
+    //
+    // validate normalized:
+    //     - multi-disk
+    //     - offsets < file_size
+    //     - checked offset + size
+    //     - directory ends before EOCD
+    //     - entry_count sanity
+
     pub fn init(reader: *std.fs.File.Reader) !Iterator {
+        const file_size = try reader.getSize();
         var oecd_offset: u64 = 0;
 
         {
             const eocd = try EndOfCentralDirectoryRecord.Read(reader);
-            oecd_offset = eocd.offset;
-
-            eocd.record.validateSingleDisk() catch |err| return err;
 
             if (!eocd.record.requiresZip64()) {
+                // validate
+                eocd.record.ensureSupportedFeatures(file_size) catch |err| return err;
+
                 return Iterator{
                     .reader = reader,
                     .cd_size = eocd.record.central_directory_size,
@@ -846,23 +888,25 @@ const Iterator = struct {
                     .total_entries = eocd.record.record_count_total,
                 };
             }
+
+            oecd_offset = eocd.offset;
         }
 
+        // eocd zip64 allocator check
         if (oecd_offset < eocd64_locator_size) {
             return error.ZipMalformed;
         }
 
-        const locator_offset: usize = oecd_offset - eocd64_locator_size;
-        try reader.seekTo(locator_offset);
-        const locator = try reader.interface.takeStruct(EndRecord64Locator, .little);
-
-        // compare locator signature
-        if (locator.signature != std.mem.readInt(u32, &[_]u8{ 'P', 'K', 6, 7 }, .little)) {
-            return error.Zip64InvalidLocatorSign;
+        const locator = try EndRecord64Locator.read(reader, oecd_offset);
+        if (locator.central_directory_offset >= file_size) {
+            return error.Zip64SizeOverflow;
         }
 
-        try reader.seekTo(locator.central_directory_offset);
-        const record64 = try reader.interface.takeStruct(EndOfCentralDirectoryRecord64, .little);
+        const record = try EndOfCentralDirectoryRecord64.read(
+            reader,
+            file_size,
+            locator.central_directory_offset,
+        );
 
         // Check 20 bytes before EOCD for ZIP64 Locator
         // Signature: 0x07064b50
@@ -886,16 +930,12 @@ const Iterator = struct {
         // So you need two detection layers:
         // - Archive-level ZIP64 (EOCD overflow)
         // - Per-entry ZIP64 (CDFH size == 0xFFFFFFFF)
-        if (record64.signature != std.mem.readInt(u32, &[_]u8{ 'P', 'K', 6, 6 }, .little)) {
-            return error.Zip64InvalidSignature;
-        }
 
         return Iterator{
             .reader = reader,
-            .cd_index = 0,
-            .cd_offset = record64.central_directory_offset,
-            .cd_size = record64.central_directory_size,
-            .total_entries = record64.record_count_total,
+            .cd_offset = record.central_directory_offset,
+            .cd_size = record.central_directory_size,
+            .total_entries = record.record_count_total,
         };
     }
 
@@ -950,6 +990,8 @@ test "eocd_structure" {
     // const with_comment_zip = "sample/with_comment.zip";
     // const my_epub = "sample/accessible_epub_3.epub";
     const as_zip64 = "sample/as_zip64.zip";
+
+    std.debug.print("record zip64 size {}\n", .{@sizeOf(EndOfCentralDirectoryRecord64)});
 
     var file = try std.fs.cwd().openFile(as_zip64, .{ .mode = .read_only });
     defer file.close();
