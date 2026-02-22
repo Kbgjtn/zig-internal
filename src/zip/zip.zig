@@ -370,17 +370,21 @@ const EndRecord64Locator = extern struct {
     central_directory_offset: u64 align(1),
     total_disks: u32 align(1),
 
-    pub const signature_mask: u32 = 0x50_4B_06_07;
-    pub const size: u32 = 0x50_4B_06_07;
+    pub const signature_mask: u32 = 0x07064B50;
+    pub const size: u32 = 20;
 
-    pub fn read(reader: *std.fs.File.Reader, offset: u64) error{ZipMalformed}!EndRecord64Locator {
+    pub fn read(reader: *std.fs.File.Reader, offset: u64) !EndRecord64Locator {
         if (offset < size) {
-            return error.ZipMalformed;
+            return error.Zip64Malformed;
         }
 
         const locator_offset: u64 = offset - eocd64_locator_size;
         try reader.seekTo(locator_offset);
-        return try reader.interface.takeStruct(EndRecord64Locator, .little);
+        const locator = try reader.interface.takeStruct(EndRecord64Locator, .little);
+        if (locator.signature != signature_mask) {
+            return error.Zip64InvalidSignature;
+        }
+        return locator;
     }
 
     pub fn print(self: EndRecord64Locator) void {
