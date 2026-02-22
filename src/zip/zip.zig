@@ -490,6 +490,18 @@ const EndOfCentralDirectoryRecord64 = extern struct {
     }
 };
 
+test "End of Central Directory Record ZIP64" {
+    try std.testing.expectEqual(@sizeOf(EndOfCentralDirectoryRecord64.header64), 12);
+    try std.testing.expectEqual(@bitSizeOf(EndOfCentralDirectoryRecord64.header64), 12 * 8);
+
+    // signature
+    try std.testing.expectEqual(EndOfCentralDirectoryRecord64.signature_marker, 0x06_06_4b_50);
+    try std.testing.expectEqual(EndOfCentralDirectoryRecord64.size, 44);
+
+    try std.testing.expectEqual(@sizeOf(EndOfCentralDirectoryRecord64), EndOfCentralDirectoryRecord64.size);
+    try std.testing.expectEqual(@bitSizeOf(EndOfCentralDirectoryRecord64), EndOfCentralDirectoryRecord64.size * 8);
+}
+
 const EndOfCentralDirectoryRecord = extern struct {
     signature: u32 align(1),
     disk_number: u16 align(1),
