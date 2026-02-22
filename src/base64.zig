@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 
 // Base64 works in 3-byte blocks. 3 bytes = 24 bits.
 // Then it splits that into:
