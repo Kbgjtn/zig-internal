@@ -967,6 +967,14 @@ pub const ExtraMetadata = struct {
                 std.mem.readInt(u64, data[offset..][0..8], .little);
             offset += 8;
         }
+
+        if (offset + 4 <= data.len) {
+            self.zip64_disk_number_start =
+                std.mem.readInt(u32, data[offset..][0..4], .little);
+            offset += 4;
+        }
+
+        if (offset != data.len) return error.Zip64Malformed;
     }
 
     ///         Extended Timestamps
