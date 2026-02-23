@@ -968,37 +968,65 @@ pub const ExtraMetadata = struct {
         }
     }
 
+    ///         Extended Timestamps
+    ///         format: 1 byte flags + optional 4-byte mod/access/creation timestamps
+    ///         The following is the layout of the extended-timestamp extra block.
+    ///         (Last Revision 19970118)
+    ///
+    ///         Local-header version:
+    ///
+    ///         Value         Size        Description
+    ///         -----         ----        -----------
+    /// (time)  0x5455        Short       tag for this extra block type ("UT")
+    ///         TSize         Short       total data size for this block
+    ///         Flags         Byte        info bits
+    ///         (ModTime)     Long        time of last modification (UTC/GMT)
+    ///         (AcTime)      Long        time of last access (UTC/GMT)
+    ///         (CrTime)      Long        time of original creation (UTC/GMT)
+    ///
+    ///         Central-header version:
+    ///
+    ///         Value         Size        Description
+    ///         -----         ----        -----------
+    /// (time)  0x5455        Short       tag for this extra block type ("UT")
+    ///         TSize         Short       total data size for this block
+    ///         Flags         Byte        info bits (refers to local header!)
+    ///         (ModTime)     Long        time of last modification (UTC/GMT)
+    ///
+    ///         The central-header extra field contains the modification time only,
+    ///         or no timestamp at all.  TSize is used to flag its presence or
+    ///         absence.
+    ///
+    ///         The lower three bits of Flags in both headers indicate which time-
+    ///         stamps are present in the LOCAL extra field:
+    ///         bit 0           if set, modification time is present
+    ///         bit 1           if set, access time is present
+    ///         bit 2           if set, creation time is present
+    ///         bits 3-7        reserved for additional timestamps; not set
+    ///
+    ///         Those times that are present will appear in the order indicated, but
+    ///         any combination of times may be omitted. (Creation time may be present
+    ///         without access time, for example.)  TSize should equal
+    ///         (1 + 4*(number of set bits in Flags)), as the block is currently defined.
+    ///         Other timestamps may be added in the future.
     fn parseExtendedTimestamp(self: *ExtraMetadata, data: []const u8) !void {
-        if (data.len < 1)
-            return error.InvalidExtraField;
+        if (data.len < 1) return error.InvalidExtraField;
 
         const flags = data[0];
         var offset: usize = 1;
 
-        if ((flags & 0x01) != 0) {
-            if (offset + 4 > data.len)
-                return error.InvalidExtraField;
-
-            self.mod_time_unix =
-                std.mem.readInt(u32, data[offset..][0..4], .little);
+        if ((flags & 0x01) != 0 and offset + 4 <= data.len) {
+            self.mod_time_unix = std.mem.readInt(u32, data[offset..][0..4], .little);
             offset += 4;
         }
 
-        if ((flags & 0x02) != 0) {
-            if (offset + 4 > data.len)
-                return error.InvalidExtraField;
-
-            self.access_time_unix =
-                std.mem.readInt(u32, data[offset..][0..4], .little);
+        if ((flags & 0x02) != 0 and offset + 4 <= data.len) {
+            self.access_time_unix = std.mem.readInt(u32, data[offset..][0..4], .little);
             offset += 4;
         }
 
-        if ((flags & 0x04) != 0) {
-            if (offset + 4 > data.len)
-                return error.InvalidExtraField;
-
-            self.creation_time_unix =
-                std.mem.readInt(u32, data[offset..][0..4], .little);
+        if ((flags & 0x04) != 0 and offset + 4 <= data.len) {
+            self.creation_time_unix = std.mem.readInt(u32, data[offset..][0..4], .little);
         }
     }
 
