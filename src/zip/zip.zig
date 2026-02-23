@@ -960,24 +960,24 @@ const Iterator = struct {
             iterator.cd_size = eocd.record.central_directory_size;
             iterator.cd_offset = eocd.record.central_directory_offset;
             iterator.total_entries = eocd.record.record_count_total;
+        } else {
+            // the archive is zip64 structure path
+            // eocd zip64 allocator check
+            const locator = try EndRecord64Locator.read(reader, file_size, eocd.offset);
+            if (locator.central_directory_offset >= file_size) {
+                return error.Zip64SizeOverflow;
+            }
+
+            const record64 = try EndOfCentralDirectoryRecord64.read(
+                reader,
+                file_size,
+                locator.central_directory_offset,
+            );
+
+            iterator.cd_offset = record64.central_directory_offset;
+            iterator.cd_size = record64.central_directory_size;
+            iterator.total_entries = record64.record_count_total;
         }
-
-        // the archive is zip64 structure path
-        // eocd zip64 allocator check
-        const locator = try EndRecord64Locator.read(reader, file_size, eocd.offset);
-        if (locator.central_directory_offset >= file_size) {
-            return error.Zip64SizeOverflow;
-        }
-
-        const record64 = try EndOfCentralDirectoryRecord64.read(
-            reader,
-            file_size,
-            locator.central_directory_offset,
-        );
-
-        iterator.cd_offset = record64.central_directory_offset;
-        iterator.cd_size = record64.central_directory_size;
-        iterator.total_entries = record64.record_count_total;
 
         try iterator.validateSizeFields(file_size);
         return iterator;
