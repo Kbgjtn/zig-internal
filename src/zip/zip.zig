@@ -966,21 +966,17 @@ const Iterator = struct {
             return error.Zip64SizeOverflow;
         }
 
-        // locator.print();
-
         const record64 = try EndOfCentralDirectoryRecord64.read(
             reader,
             file_size,
             locator.central_directory_offset,
         );
 
-        // record64.print();
-
         iterator.cd_offset = record64.central_directory_offset;
         iterator.cd_size = record64.central_directory_size;
         iterator.total_entries = record64.record_count_total;
 
-        try iterator.validateSizeFields();
+        try iterator.validateSizeFields(file_size);
         return iterator;
     }
 
