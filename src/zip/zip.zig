@@ -942,89 +942,44 @@ const Iterator = struct {
     cd_size: u64 = 0,
     total_entries: u64 = 0,
 
-    // read EOCD
-    // if requires ZIP64:
-    //     read locator
-    //     validate locator
-    //     read ZIP64 record
-    //     normalize values
-    // else:
-    //     use classic values
-    //
-    // validate normalized:
-    //     - multi-disk
-    //     - offsets < file_size
-    //     - checked offset + size
-    //     - directory ends before EOCD
-    //     - entry_count sanity
-
     pub fn init(reader: *std.fs.File.Reader) !Iterator {
         const file_size = try reader.getSize();
-        var oecd_offset: u64 = 0;
 
-        {
-            const eocd = try EndOfCentralDirectoryRecord.Read(reader);
+        // Read EOCD record
+        const eocd = try EndOfCentralDirectoryRecord.read(reader);
+        try eocd.record.validateStructure(file_size, eocd.offset);
 
-            if (!eocd.record.requiresZip64()) {
-                // validate
-                eocd.record.ensureSupportedFeatures(file_size) catch |err| return err;
+        var iterator: Iterator = .{ .reader = reader };
 
-                return Iterator{
-                    .reader = reader,
-                    .cd_size = eocd.record.central_directory_size,
-                    .cd_offset = eocd.record.central_directory_offset,
-                    .total_entries = eocd.record.record_count_total,
-                };
-            }
-
-            oecd_offset = eocd.offset;
+        const requires_zip64 = eocd.record.requiresZip64();
+        if (!requires_zip64) {
+            try eocd.record.validateSizeFields(file_size);
+            iterator.cd_size = eocd.record.central_directory_size;
+            iterator.cd_offset = eocd.record.central_directory_offset;
+            iterator.total_entries = eocd.record.record_count_total;
         }
 
+        // the archive is zip64 structure path
         // eocd zip64 allocator check
-        if (oecd_offset < eocd64_locator_size) {
-            return error.ZipMalformed;
-        }
-
-        const locator = try EndRecord64Locator.read(reader, oecd_offset);
+        const locator = try EndRecord64Locator.read(reader, file_size, eocd.offset);
         if (locator.central_directory_offset >= file_size) {
             return error.Zip64SizeOverflow;
         }
 
-        const record = try EndOfCentralDirectoryRecord64.read(
+        locator.print();
+
+        const record64 = try EndOfCentralDirectoryRecord64.read(
             reader,
             file_size,
             locator.central_directory_offset,
         );
 
-        // Check 20 bytes before EOCD for ZIP64 Locator
-        // Signature: 0x07064b50
-        // if found:
-        // - Read the data locator
-        // - Seek to ZIP64 EOCD record
-        // - Override values
-        // if not found:
-        // - Either malformed ZIP
-        // - Or legal edge-case where value is exactly max
+        // record64.print();
 
-        // NOTE (dapa):
-        // Also Important:
-        //
-        // Per-File ZIP64 Is Separate
-        // Even if archive is NOT ZIP64 at top-level,
-        // Individual files may still use ZIP64 extra (0x0001)
-        // if file size > 4GB.
-        // That is independent of EOCD.
-        //
-        // So you need two detection layers:
-        // - Archive-level ZIP64 (EOCD overflow)
-        // - Per-entry ZIP64 (CDFH size == 0xFFFFFFFF)
-
-        return Iterator{
-            .reader = reader,
-            .cd_offset = record.central_directory_offset,
-            .cd_size = record.central_directory_size,
-            .total_entries = record.record_count_total,
-        };
+        iterator.cd_offset = record64.central_directory_offset;
+        iterator.cd_size = record64.central_directory_size;
+        iterator.total_entries = record64.record_count_total;
+        return iterator;
     }
 
     pub fn next(self: *Iterator) !?FileData {
