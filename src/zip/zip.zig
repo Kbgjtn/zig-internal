@@ -878,7 +878,7 @@ pub const MapHeaderID = enum(u16) {
     /// Info-ZIP Macintosh (old, J. Lee)
     info_zip_macintosh = 0x07c8,
     /// ZipIt Macintosh (first version)
-    zipit_macintosh = 0x07c8,
+    zipit_macintosh = 0x2605,
     /// 0x2705        ZipIt Macintosh v 1.3.5 and newer (w//o full filename)
     zipit_macintosh_v1_3_5 = 0x2705,
     /// Info-ZIP Macintosh (new, D. Haase's 'Mac3' field)
