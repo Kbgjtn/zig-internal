@@ -966,7 +966,7 @@ const Iterator = struct {
             return error.Zip64SizeOverflow;
         }
 
-        locator.print();
+        // locator.print();
 
         const record64 = try EndOfCentralDirectoryRecord64.read(
             reader,
