@@ -942,6 +942,9 @@ const Iterator = struct {
     cd_size: u64 = 0,
     total_entries: u64 = 0,
 
+    // entries count DoS guard
+    const max_reasonable_entries = 10_000_000;
+
     pub fn init(reader: *std.fs.File.Reader) !Iterator {
         const file_size = try reader.getSize();
 
