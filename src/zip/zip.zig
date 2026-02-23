@@ -457,29 +457,36 @@ const EndOfCentralDirectoryRecord64 = extern struct {
 
         // check if there's extensible data record remaining
         if (header.record_size > size) {
-            const remaining = header.record_size - size;
-            try reader.seekBy(@as(i64, @intCast(remaining)));
-
             // TODO (dapa)
             // Parse The Extensible Data?
             // unimplemented supported:
             // Central directory encryption
             // Strong encryption (spec 6.2+)
             // PKWARE proprietary extensions
+
+            const remaining = header.record_size - size;
+            try reader.seekBy(@as(i64, @intCast(remaining)));
         }
 
-        if (record.disk_number != 0 or
-            record.central_directory_disk_number != 0 or
-            record.record_count_disk != record.record_count_total)
+        try record.validateStructure(offset);
+        return record;
+    }
+
+    fn validateStructure(
+        self: EndOfCentralDirectoryRecord64,
+        offset: u64,
+    ) error{ Zip64UnsupportedMultiDisk, Zip64SizeOverflow, Zip64Malformed }!void {
+        if (self.disk_number != 0 or
+            self.central_directory_disk_number != 0 or
+            self.record_count_disk != self.record_count_total)
         {
             return error.Zip64UnsupportedMultiDisk;
         }
 
-        if (record.central_directory_offset + record.central_directory_size > offset) {
-            return error.ZipInvalidLayout;
+        const end = std.math.add(u64, self.central_directory_offset, self.central_directory_size) catch return error.Zip64SizeOverflow;
+        if (end > offset) {
+            return error.Zip64SizeOverflow;
         }
-
-        return record;
     }
 
     pub fn print(self: EndOfCentralDirectoryRecord64) void {
