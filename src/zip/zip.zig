@@ -933,9 +933,9 @@ pub const MapHeaderID = enum(u16) {
 
 pub const ExtraMetadata = struct {
     // ZIP64
-    zip64_uncompressed_size: ?u664 = null,
-    zip64_compressed_size: ?u664 = null,
-    zip64_local_header_offset: ?u664 = null,
+    zip64_uncompressed_size: ?u64 = null,
+    zip64_compressed_size: ?u64 = null,
+    zip64_local_header_offset: ?u64 = null,
 
     // Extended timestamp (0x5455)
 
@@ -947,7 +947,8 @@ pub const ExtraMetadata = struct {
     uid: ?u32 = null,
     gid: ?u32 = null,
 
-    fn parseZip64(self: *ExtraMetadata, data: []const u8) !void {
+    // Parse ZIP64 Extended Information Data Fields
+    fn parseZip64Extended(self: *ExtraMetadata, data: []const u8) !void {
         var offset: usize = 0;
         if (offset + 8 <= data.len) {
             self.zip64_uncompressed_size =
