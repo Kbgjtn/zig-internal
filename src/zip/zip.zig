@@ -667,6 +667,77 @@ const EndOfCentralDirectoryRecord = extern struct {
         }
     }
 
+    fn validateStructure(
+        self: EndOfCentralDirectoryRecord,
+        file_size: u64,
+        offset: u64,
+    ) error{ ZipMalformed, ZipUnsupportedMultiDisk }!void {
+        // no multi-disk support
+        if (self.disk_number != 0 or
+            self.central_directory_disk_number != 0 or
+            self.record_count_disk != self.record_count_total)
+        {
+            return error.ZipUnsupportedMultiDisk;
+        }
+
+        // validate comment lenght consistency
+        const expected_end = std.math.add(u64, offset, size) catch return error.ZipMalformed;
+        const actual_end = std.math.add(u64, expected_end, self.comment_len) catch return error.ZipMalformed;
+        if (actual_end != file_size) {
+            return error.ZipMalformed;
+        }
+    }
+
+    fn validateSizeFields(self: EndOfCentralDirectoryRecord, file_size: u64) error{
+        ZipSizeOverflow,
+        ZipArchiveEmpty,
+        ZipUnsupportedMultiDisk,
+        // ZipRequiresZip64,
+    }!void {
+        if (self.central_directory_offset >= file_size) {
+            return error.ZipSizeOverflow;
+        }
+
+        const end = std.math.add(
+            u64,
+            self.central_directory_offset,
+            self.central_directory_size,
+        ) catch return error.ZipSizeOverflow;
+
+        if (end > file_size) return error.ZipSizeOverflow;
+    }
+
+    pub fn getOffset(self: EndOfCentralDirectoryRecord) usize {
+        return self.central_directory_size + self.central_directory_offset;
+    }
+
+    pub fn readComment(
+        reader: *std.fs.File.Reader,
+        file_size: u64,
+        offset: u64,
+        comment_len: u64,
+        buf: []u8,
+    ) ![]u8 {
+        if (comment_len == 0) return buf[0..0];
+
+        if (buf.len < comment_len) {
+            return error.InsufficientBufferSize;
+        }
+
+        const comment_offset = offset + eocd_size;
+        const comment_end = try std.math.add(u64, comment_offset, comment_len);
+
+        if (comment_end != file_size) {
+            return error.InvalidZipStructure;
+        }
+
+        try reader.seekTo(comment_offset);
+
+        const out = buf[0..comment_len];
+        try reader.interface.readSliceAll(out);
+        return out;
+    }
+
     fn parse(bytes: []const u8) EndOfCentralDirectoryRecord {
         return EndOfCentralDirectoryRecord{
             .signature = std.mem.readInt(u32, bytes[0..4], .little),
