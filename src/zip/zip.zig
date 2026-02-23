@@ -822,6 +822,115 @@ const data_descriptor_signature: u32 = 0x50_4B_07_08;
 // When the Central Directory Structure is encrypted, this decryption
 // header MUST precede the encrypted data segment.
 
+/// Extensible Data Fields
+/// Extra fields are documented in PKWARE's appnote.txt and are
+/// intended to allow for backward- and forward-compatible extensions
+/// to the zipfile format. Multiple extra-field data is less then 66KB.
+/// (In fact, PKWARE requires that the total length of the entire file header,
+/// including timestamp, file attributes, file name, comment, extra field, etc.,
+/// be no more than 64KB).
+///
+/// Each extra-field type must contain a for byte header consisting of a
+/// two-byte Header ID and a two-byte length in least significant order byte
+/// (little-endian) for the remaining data in the subblock. If there are extra
+/// additional subblocks within the extra field, the header for each one will
+/// appear immediately following the data for the previous subblock (i.e., with
+/// no padding or allignment).
+///
+/// All integer fields in the description below are in little-endian (Intel)
+/// format unless otherwise specifed. Note that "Short" means two bytes,
+/// "Long" means four bytes, and "Long-Long" means eight bytes, regardless
+/// of their native sizes. Unless specifically noted, all integer fields
+/// should be interpreted as unsigned (non-negative) numbers.
+///
+/// refs:
+/// - [4.5 Extensible Data Fields](https://pkwaredownloads.blob.core.windows.net/pem/APPNOTE.txt)
+/// - [Extra Fields](https://libzip.org/specifications/extrafld.txt)
+pub const MapHeaderID = enum(u16) {
+    // The current Header ID mappings defined by PKWARE are:
+
+    /// Zip64 extended information extra field
+    zip64_extended_extra_field = 0x0001,
+    /// AV Info
+    av_info = 0x0007,
+    /// https://en.wikipedia.org/wiki/OS/2
+    os2_extended_attributes = 0x0009, // also Info-ZIP
+    /// Win9x/WinNT FileTimes
+    ntfs = 0x000a,
+    /// OpenVMS
+    open_vms = 0x000c, // also Info-ZIP
+    /// Unix
+    unix = 0x000d,
+    /// Patch Descrptor
+    patch_descriptor = 0x000f,
+    /// PKCS#7 Store for X.509 Certificates
+    pkcs7_certs = 0x0014,
+    /// X.509 Certificate ID and Signature for individual file
+    x509_certificate_id_and_signature = 0x0015,
+    // X.509 Certificate ID for Central Directory
+    x509_certificate_id_for_central_directory = 0x0016,
+
+    // The Header ID mappings defined by Info-ZIP and third parties are:
+    /// IBM S/390 attributes - uncompressed
+    ibm_s390_attributes_uncompressed = 0x0065,
+    /// IBM S/390 attributes - compressed
+    ibm_s390_attributes_compressed = 0x0066,
+    /// Info-ZIP Macintosh (old, J. Lee)
+    info_zip_macintosh = 0x07c8,
+    /// ZipIt Macintosh (first version)
+    zipit_macintosh = 0x07c8,
+    /// 0x2705        ZipIt Macintosh v 1.3.5 and newer (w//o full filename)
+    zipit_macintosh_v1_3_5 = 0x2705,
+    /// Info-ZIP Macintosh (new, D. Haase's 'Mac3' field)
+    info_zip_macintosh_mac3 = 0x334d,
+    /// 0x4154        Tandem NSK
+    tandem_nsk = 0x4154,
+    /// 0x4341        Acorn//SparkFS (David Pilling)
+    acorn_sparkfs = 0x4341,
+    /// 0x4453        Windows NT security descriptor (binary ACL)
+    windows_nt_security_descriptor = 0x4453,
+    /// 0x4704        VM//CMS
+    vm_cms = 0x4704,
+    /// 0x470f        MVS
+    mvs = 0x470f,
+    /// 0x4854        Theos, old inofficial port
+    theos_old = 0x4854,
+    /// 0x4b46        FWKCS MD5 (see below)
+    fwkcs_md5 = 0x4b46,
+    /// 0x4c41        OS//2 access control list (text ACL)
+    os2_acl = 0x4c41,
+    /// 0x4d49        Info-ZIP OpenVMS (obsolete)
+    info_zip_openvms_obsolete = 0x4d49,
+    /// 0x4d63        Macintosh SmartZIP, by Macro Bambini
+    macintosh_smartzip = 0x4d63,
+    /// 0x4f4c        Xceed original location extra field
+    xceed_orginal_location = 0x4f4c,
+    /// 0x5356        AOS//VS (binary ACL)
+    aos_vs = 0x5356,
+    /// 0x5455        extended timestamp
+    extended_timestamp = 0x5455,
+    /// 0x5855        Info-ZIP Unix (original; also OS//2, NT, etc.)
+    info_zip_unix = 0x5855,
+    /// 0x554e        Xceed unicode extra field
+    xceed_unicode_field = 0x554e,
+    /// 0x6375        Info-ZIP Unicode Comment
+    info_zip_unicode_comment = 0x6375,
+    /// 0x6542        BeOS (BeBox, PowerMac, etc.)
+    beos = 0x6542,
+    /// 0x6854        Theos
+    theos = 0x6854,
+    /// 0x7075        Info-ZIP Unicode Path
+    info_zip_unicode_path = 0x7075,
+    /// 0x756e        ASi Unix
+    asi_unix = 0x756e,
+    /// 0x7855        Info-ZIP Unix (previous new)
+    info_zip_unix_previous = 0x7855,
+    /// 0x7875        Info-ZIP Unix (new)
+    info_zip_unix_new = 0x7875,
+    /// 0xfb4a        SMS//QDOS
+    sms_qdos = 0xfb4a,
+};
+
 pub const ExtraMetadata = struct {
     // ZIP64
     zip64_uncompressed_size: ?u664 = null,
