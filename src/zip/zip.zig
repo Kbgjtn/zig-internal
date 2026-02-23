@@ -778,6 +778,18 @@ const EndOfCentralDirectoryRecord = extern struct {
             loaded_len.* = new_loaded;
         }
     }
+
+    pub fn print(self: EndOfCentralDirectoryRecord) void {
+        std.debug.print("EndOfCentralDirectoryRecord\n", .{});
+        std.debug.print(".signature 0x{X}\n", .{self.signature});
+        std.debug.print(".disk_number {d}\n", .{self.disk_number});
+        std.debug.print(".central_directory_disk_number {d}\n", .{self.central_directory_disk_number});
+        std.debug.print(".record_count_disk {d}\n", .{self.record_count_disk});
+        std.debug.print(".record_count_total {d}\n", .{self.record_count_total});
+        std.debug.print(".central_directory_size {d}\n", .{self.central_directory_size});
+        std.debug.print(".central_directory_offset {d}\n", .{self.central_directory_offset});
+        std.debug.print(".comment_len {d}\n", .{self.comment_len});
+    }
 };
 
 /// File data
