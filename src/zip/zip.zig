@@ -979,7 +979,19 @@ const Iterator = struct {
         iterator.cd_offset = record64.central_directory_offset;
         iterator.cd_size = record64.central_directory_size;
         iterator.total_entries = record64.record_count_total;
+
+        try iterator.validateSizeFields();
         return iterator;
+    }
+
+    fn validateSizeFields(self: Iterator, file_size: u64) error{ EntryCountExceedsLimit, Zip64SizeOverflow, Zip64EmptyArchive }!void {
+        // validate unified central directory bounds
+        if (self.total_entries == 0) return error.Zip64EmptyArchive;
+        if (self.total_entries > max_reasonable_entries) return error.EntryCountExceedsLimit;
+
+        if (self.cd_offset >= file_size) return error.Zip64SizeOverflow;
+        const end = std.math.add(u64, self.cd_offset, self.cd_size) catch return error.Zip64SizeOverflow;
+        if (end > file_size) return error.Zip64SizeOverflow;
     }
 
     pub fn next(self: *Iterator) !?FileData {
