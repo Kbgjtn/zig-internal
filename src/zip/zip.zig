@@ -977,10 +977,11 @@ pub const ExtraMetadata = struct {
         if (offset != data.len) return error.Zip64Malformed;
     }
 
-    ///         Extended Timestamps
-    ///         format: 1 byte flags + optional 4-byte mod/access/creation timestamps
-    ///         The following is the layout of the extended-timestamp extra block.
-    ///         (Last Revision 19970118)
+    /// Extended Timestamps
+    /// format: 1 byte flags + optional 4-byte mod/access/creation timestamps
+    /// The following is the layout of the extended-timestamp extra block.
+    ///
+    /// (Last Revision 19970118)
     ///
     ///         Local-header version:
     ///
@@ -1002,22 +1003,22 @@ pub const ExtraMetadata = struct {
     ///         Flags         Byte        info bits (refers to local header!)
     ///         (ModTime)     Long        time of last modification (UTC/GMT)
     ///
-    ///         The central-header extra field contains the modification time only,
-    ///         or no timestamp at all.  TSize is used to flag its presence or
-    ///         absence.
+    /// The central-header extra field contains the modification time only,
+    /// or no timestamp at all.  TSize is used to flag its presence or
+    /// absence.
     ///
-    ///         The lower three bits of Flags in both headers indicate which time-
-    ///         stamps are present in the LOCAL extra field:
-    ///         bit 0           if set, modification time is present
-    ///         bit 1           if set, access time is present
-    ///         bit 2           if set, creation time is present
-    ///         bits 3-7        reserved for additional timestamps; not set
+    /// The lower three bits of Flags in both headers indicate which time-
+    /// stamps are present in the LOCAL extra field:
+    /// bit 0       if set, modification time is present
+    /// bit 1       if set, access time is present
+    /// bit 2       if set, creation time is present
+    /// bits 3-7    reserved for additional timestamps; not set
     ///
-    ///         Those times that are present will appear in the order indicated, but
-    ///         any combination of times may be omitted. (Creation time may be present
-    ///         without access time, for example.)  TSize should equal
-    ///         (1 + 4*(number of set bits in Flags)), as the block is currently defined.
-    ///         Other timestamps may be added in the future.
+    /// Those times that are present will appear in the order indicated, but
+    /// any combination of times may be omitted. (Creation time may be present
+    /// without access time, for example.)  TSize should equal
+    /// (1 + 4*(number of set bits in Flags)), as the block is currently defined.
+    /// Other timestamps may be added in the future.
     fn parseExtendedTimestamp(self: *ExtraMetadata, data: []const u8) !void {
         if (data.len < 1) return error.InvalidExtraField;
 
