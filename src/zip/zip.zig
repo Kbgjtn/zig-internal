@@ -681,12 +681,10 @@ const EndOfCentralDirectoryRecord = extern struct {
     }
 
     fn isValidEndRecord(record_bytes: []const u8, expected_comment_len: u16) bool {
-        if (!std.mem.eql(u8, record_bytes[0..4], &eocd_signature_bytes))
+        if (!std.mem.eql(u8, record_bytes[0..4], &eocd_signature_bytes)) {
             return false;
-
-        const actual_comment_len =
-            std.mem.readInt(u16, record_bytes[20..22], .little);
-
+        }
+        const actual_comment_len = std.mem.readInt(u16, record_bytes[20..22], .little);
         return actual_comment_len == expected_comment_len;
     }
 
