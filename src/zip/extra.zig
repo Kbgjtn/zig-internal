@@ -236,6 +236,15 @@ pub const Iterator = struct {
     buf: []const u8,
     offset: usize = 0,
 
+    pub fn find(self: Iterator, header_id: zip.HeaderId) ?Field {
+        var it = self;
+        while (true) {
+            const field = it.next() catch return null;
+            if (field == null) return null;
+            if (field.?.id == @intFromEnum(header_id)) return field.?;
+        }
+    }
+
     pub fn next(self: *Iterator) !?Field {
         if (self.offset == self.buf.len) {
             return null;
@@ -254,14 +263,10 @@ pub const Iterator = struct {
         }
 
         const data = self.buf[self.offset .. self.offset + size];
-        // std.debug.print("field_data: {any}\n", .{data[0..]});
-        const field = Field{
-            .id = id,
-            .data = data,
-        };
-
-        self.offset += size;
-        return field;
+        defer {
+            self.offset += size;
+        }
+        return Field{ .id = id, .data = data };
     }
 };
 
@@ -276,8 +281,6 @@ test "iterator" {
     var extraMeta: ParsedMetadata = undefined;
 
     while (try iter.next()) |f| {
-        std.debug.print("extra.id 0x{x}\n", .{f.id});
-
         const id = f.asHeaderID() orelse return error.BadHeaderId;
         switch (id) {
             .extended_timestamp, .info_zip_unix_new => {
@@ -299,7 +302,5 @@ test "iterator" {
                 continue;
             },
         }
-
-        std.debug.print("metadata: {}\n", .{extraMeta});
     }
 }
