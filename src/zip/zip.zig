@@ -240,6 +240,7 @@ const Version = packed struct(u16) {
 };
 
 const FileData = struct {
+    compressed_size: u64,
     header: LocalFileHeader,
     offset: u64,
 
@@ -727,15 +728,10 @@ const EndOfCentralDirectoryRecord = extern struct {
         var loaded_len: usize = 0;
         var comment_len: u16 = 0;
 
-        // std.debug.print("file_size {}\n", .{file_size});
-        // std.debug.print("search_limit {}\n", .{search_limit});
-        // std.debug.print("max_record_len {}\n", .{max_record_len});
-
         const base_file_offset = file_size - search_limit;
 
         while (comment_len <= max_u16) {
             const record_len = @as(usize, comment_len) + eocd_size;
-            std.debug.print("record_len: {}\n", .{record_len});
             if (record_len > search_limit) {
                 return error.ZipNoEndRecord;
             }
@@ -750,8 +746,6 @@ const EndOfCentralDirectoryRecord = extern struct {
             const record_bytes = buffer[record_start..][0..eocd_size];
 
             if (isValidEndRecord(record_bytes, comment_len)) {
-                std.debug.print("comment_len {}\n", .{comment_len});
-
                 return .{
                     .record = parse(record_bytes),
                     .offset = base_file_offset + record_offset,
@@ -1287,7 +1281,7 @@ const Iterator = struct {
         const file_name = file_name_buf[0..cdfh.filename_len];
         try self.reader.interface.readSliceAll(file_name);
 
-        std.debug.print("#{d} [{d}] - {s}\n", .{ self.cd_index, self.cd_offset, file_name });
+        std.debug.print("Entry #{d} [{d}] - {s}\n", .{ self.cd_index + 1, self.cd_offset, file_name });
         cdfh.print();
 
         var extra_buf: [max_u16]u8 = undefined;
@@ -1297,12 +1291,6 @@ const Iterator = struct {
         if (cdfh.comment_len > 0) {
             try self.reader.seekBy(cdfh.comment_len);
         }
-
-        // Resolve size and offsets
-        // var compressed_size: u64 = @as(u64, cdfh.compressed_size);
-        // var uncompressed_size: u64 = @as(u64, cdfh.uncompressed_size);
-        // var lfh_offset: u64 = @as(u64, cdfh.local_file_header_relative_offset);
-        // var disk_number_start: u32 = @as(u32, cdfh.disk_number_start);
 
         var zip64_extra: Extra.Zip64Extended = .{
             .compressed_size = @intCast(cdfh.compressed_size),
@@ -1326,57 +1314,44 @@ const Iterator = struct {
             zip64_extra = out.zip64_extended_extra_field;
         }
 
-        const lfh = try LocalFileHeader.read(self.reader, zip64_extra.local_file_header_relative_offset);
-        lfh.print();
+        const file_header = try LocalFileHeader.read(self.reader, zip64_extra.local_file_header_relative_offset);
+        file_header.print();
+
+        std.debug.print("zip64_extra {}\n", .{zip64_extra});
+
+        // TODO (dapa) should i re-check on local file header too?
+        // which one should be the trusted canonical sources?
+
+        // zip64_extra = .{
+        //     .compressed_size = @intCast(file_header.compressed_size),
+        //     .uncompressed_size = @intCast(file_header.uncompressed_size),
+        //     .disk_number_start = null,
+        //     .local_file_header_relative_offset = null,
+        // };
+        // if (file_header.requires_zip64()) {
+        //     const extra_iterator: Extra.Iterator = .{ .buf = extra };
+        //     const field = extra_iterator.find(HeaderId.zip64_extended_extra_field) orelse return error.Zip64Malformed;
+        //     const ctx: Extra.Context = .{
+        //         .zip64_extended_extra_field = .{
+        //             .uncompressed_size = file_header.uncompressed_size,
+        //             .compressed_size = file_header.compressed_size,
+        //             .local_file_header_relative_offset = null,
+        //             .disk_number_start = null,
+        //         },
+        //     };
+        //     const out = try field.parse(ctx);
+        //     zip64_extra = out.zip64_extended_extra_field;
+        // }
+        //
+        // file_header.print();
 
         // validate compressed_size and uncompressed_size cdfh and lfh
+
         return FileData{
-            .header = lfh,
-            .offset = cdfh.local_file_header_relative_offset + local_file_header_size,
+            .header = file_header,
+            .compressed_size = zip64_extra.compressed_size,
+            .offset = zip64_extra.local_file_header_relative_offset,
         };
-    }
-
-    // TODO (dapa)
-    // should only parse the extra data field by the given header_id in parameters
-    fn parseExtra(
-        extra: []const u8,
-    ) !struct {
-        offset: ?u64,
-        compressed: ?u64,
-        uncompressed: ?u64,
-    } {
-        var meta = ExtraMetadata{};
-        var i: usize = 0;
-
-        while (i + 4 <= extra.len) {
-            const id: HeaderId = @enumFromInt(std.mem.readInt(u16, extra[i..][0..2], .little));
-            const size = std.mem.readInt(u16, extra[i + 2 ..][0..2], .little);
-            i += 4;
-
-            if (i + size > extra.len) {
-                return error.ZipBadExtraFields;
-            }
-
-            std.debug.print("header_id 0x{x}\n", .{id});
-            std.debug.print("data_size {d}\n", .{size});
-
-            const data = extra[i .. i + size];
-            std.debug.print("field_data: {any}\n", .{data[0..]});
-            switch (id) {
-                .zip64_extended_extra_field => try meta.parseZip64Extended(data),
-                .extended_timestamp => try meta.parseExtendedTimestamp(data),
-
-                // 0x7875 => try meta.parseUnixExtra(data),
-                else => {
-                    // Ignore other extra fields
-                },
-            }
-
-            i += size;
-        }
-
-        // std.debug.print("meta: {any}\n", .{meta});
-        return .{ .offset = meta.zip64_local_header_offset, .uncompressed = meta.zip64_uncompressed_size, .compressed = meta.zip64_compressed_size };
     }
 
     fn validateSizeFields(self: Iterator, file_size: u64) error{ EntryCountExceedsLimit, Zip64SizeOverflow, Zip64EmptyArchive }!void {
@@ -1392,10 +1367,10 @@ const Iterator = struct {
 
 test "eocd_structure" {
     // const with_comment_zip = "sample/with_comment.zip";
-    const my_epub = "sample/accessible_epub_3.epub";
-    // const as_zip64 = "sample/as_zip64.zip";
+    // const my_epub = "sample/accessible_epub_3.epub";
+    const as_zip64 = "sample/as_zip64.zip";
 
-    var file = try std.fs.cwd().openFile(my_epub, .{ .mode = .read_only });
+    var file = try std.fs.cwd().openFile(as_zip64, .{ .mode = .read_only });
     defer file.close();
 
     var buf: [1024]u8 = undefined;
