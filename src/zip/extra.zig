@@ -1,7 +1,9 @@
 const std = @import("std");
 const zip = @import("zip.zig");
 
-const Context = union(enum) {
+// TODO change to zip.HeaderId
+// Zig enforces ordered must be the same as enum field
+pub const Context = union(enum) {
     zip64_extended_extra_field: struct {
         uncompressed_size: ?u32,
         compressed_size: ?u32,
@@ -11,28 +13,30 @@ const Context = union(enum) {
     none,
 };
 
+// TODO change to zip.HeaderId
+// Zig enforces ordered must be the same as enum field
 pub const ParsedMetadata = union(enum) {
     zip64_extended_extra_field: Zip64Extended,
-    extended_timestamps: ExtendedTimestamp,
     info_zip_unix_new: InfoZipNewUnix,
+    extended_timestamp: ExtendedTimestamp,
 };
 
-pub const Extra = struct {
+pub const Field = struct {
     id: u16,
     data: []const u8,
 
-    pub fn asHeaderID(self: Extra) ?zip.HeaderId {
+    pub fn asHeaderID(self: Field) ?zip.HeaderId {
         return std.enums.fromInt(zip.HeaderId, self.id);
     }
 
-    pub fn parse(self: Extra, ctx: Context) !ParsedMetadata {
+    pub fn parse(self: Field, ctx: Context) !ParsedMetadata {
         const id = self.asHeaderID() orelse return error.BadHeaderId;
         switch (id) {
             .zip64_extended_extra_field => return .{
                 .zip64_extended_extra_field = try parseZip64Extended(self.data, ctx),
             },
             .extended_timestamp => return .{
-                .extended_timestamps = try parseExtendedTimestamp(self.data, ctx),
+                .extended_timestamp = try parseExtendedTimestamp(self.data, ctx),
             },
             .info_zip_unix_new => return .{
                 .info_zip_unix_new = try parseInfoZipUnixNew(self.data, ctx),
@@ -44,12 +48,12 @@ pub const Extra = struct {
 
 test "extra field header id" {
     {
-        const f: Extra = .{ .id = 0x0001, .data = undefined };
+        const f: Field = .{ .id = 0x0001, .data = undefined };
         try std.testing.expect(f.asHeaderID() == zip.HeaderId.zip64_extended_extra_field);
     }
 
     {
-        const f: Extra = .{ .id = 0xFFFF, .data = undefined };
+        const f: Field = .{ .id = 0xFFFF, .data = undefined };
         try std.testing.expect(f.asHeaderID() == null);
     }
 }
@@ -57,7 +61,7 @@ test "extra field header id" {
 test "extra field parse" {
     // zero fields
     {
-        const f: Extra = .{ .id = 0x0001, .data = &[_]u8{0} ** 8 };
+        const f: Field = .{ .id = 0x0001, .data = &[_]u8{0} ** 8 };
         const output = try f.parse(.{
             .zip64_extended_extra_field = .{
                 .compressed_size = 0,
@@ -126,7 +130,7 @@ fn parseZip64Extended(
 
 // TODO add test cases
 test "parse ZIP64 extended information" {
-    const ef: Extra = .{ .data = &[_]u8{ 6, 0, 0, 0, 0, 0, 0, 0 }, .id = 0x1 };
+    const ef: Field = .{ .data = &[_]u8{ 6, 0, 0, 0, 0, 0, 0, 0 }, .id = 0x1 };
     const parsed = try parseZip64Extended(ef.data, .{
         .zip64_extended_extra_field = .{
             .compressed_size = 6,
@@ -232,7 +236,7 @@ pub const Iterator = struct {
     buf: []const u8,
     offset: usize = 0,
 
-    pub fn next(self: *Iterator) !?Extra {
+    pub fn next(self: *Iterator) !?Field {
         if (self.offset == self.buf.len) {
             return null;
         }
@@ -251,7 +255,7 @@ pub const Iterator = struct {
 
         const data = self.buf[self.offset .. self.offset + size];
         std.debug.print("field_data: {any}\n", .{data[0..]});
-        const field = Extra{
+        const field = Field{
             .id = id,
             .data = data,
         };
