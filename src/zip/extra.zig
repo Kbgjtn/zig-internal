@@ -17,8 +17,8 @@ pub const Context = union(enum) {
 // Zig enforces ordered must be the same as enum field
 pub const ParsedMetadata = union(enum) {
     zip64_extended_extra_field: Zip64Extended,
-    info_zip_unix_new: InfoZipNewUnix,
     extended_timestamp: ExtendedTimestamp,
+    info_zip_unix_new: InfoZipNewUnix,
 };
 
 pub const Field = struct {
@@ -254,7 +254,7 @@ pub const Iterator = struct {
         }
 
         const data = self.buf[self.offset .. self.offset + size];
-        std.debug.print("field_data: {any}\n", .{data[0..]});
+        // std.debug.print("field_data: {any}\n", .{data[0..]});
         const field = Field{
             .id = id,
             .data = data,
