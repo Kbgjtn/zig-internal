@@ -11,7 +11,7 @@ const Context = union(enum) {
     none,
 };
 
-const ParsedMetadata = union(enum) {
+pub const ParsedMetadata = union(enum) {
     zip64_extended_extra_field: Zip64Extended,
     extended_timestamps: ExtendedTimestamp,
     info_zip_unix_new: InfoZipNewUnix,
@@ -21,11 +21,11 @@ pub const Extra = struct {
     id: u16,
     data: []const u8,
 
-    fn asHeaderID(self: Extra) ?zip.HeaderId {
+    pub fn asHeaderID(self: Extra) ?zip.HeaderId {
         return std.enums.fromInt(zip.HeaderId, self.id);
     }
 
-    fn parse(self: Extra, ctx: Context) !ParsedMetadata {
+    pub fn parse(self: Extra, ctx: Context) !ParsedMetadata {
         const id = self.asHeaderID() orelse return error.BadHeaderId;
         switch (id) {
             .zip64_extended_extra_field => return .{
@@ -78,37 +78,13 @@ test "extra field parse" {
 
         try std.testing.expectEqualDeep(output, expected);
     }
-
-    // null fields
-    {
-        const f: Extra = .{ .id = 0x0001, .data = &[_]u8{} };
-        const output = try f.parse(.{
-            .zip64_extended_extra_field = .{
-                .compressed_size = null,
-                .uncompressed_size = null,
-                .disk_number_start = null,
-                .local_file_header_relative_offset = null,
-            },
-        });
-
-        const expected: ParsedMetadata = .{
-            .zip64_extended_extra_field = .{
-                .compressed_size = null,
-                .uncompressed_size = null,
-                .disk_number_start = null,
-                .local_file_header_relative_offset = null,
-            },
-        };
-
-        try std.testing.expectEqualDeep(output, expected);
-    }
 }
 
-const Zip64Extended = struct {
-    uncompressed_size: ?u64 = null,
-    compressed_size: ?u64 = null,
-    local_file_header_relative_offset: ?u64 = null,
-    disk_number_start: ?u32 = null,
+pub const Zip64Extended = struct {
+    uncompressed_size: u64 = 0,
+    compressed_size: u64 = 0,
+    local_file_header_relative_offset: u64 = 0,
+    disk_number_start: u32 = 0,
 };
 
 fn parseZip64Extended(
@@ -161,13 +137,13 @@ test "parse ZIP64 extended information" {
     });
 
     try std.testing.expect(parsed.disk_number_start == 0);
-    try std.testing.expect(@TypeOf(parsed.disk_number_start) == ?u32);
+    try std.testing.expect(@TypeOf(parsed.disk_number_start) == u32);
     try std.testing.expect(parsed.local_file_header_relative_offset == 0);
-    try std.testing.expect(@TypeOf(parsed.local_file_header_relative_offset) == ?u64);
+    try std.testing.expect(@TypeOf(parsed.local_file_header_relative_offset) == u64);
     try std.testing.expect(parsed.uncompressed_size == 6);
-    try std.testing.expect(@TypeOf(parsed.uncompressed_size) == ?u64);
+    try std.testing.expect(@TypeOf(parsed.uncompressed_size) == u64);
     try std.testing.expect(parsed.compressed_size == 6);
-    try std.testing.expect(@TypeOf(parsed.compressed_size) == ?u64);
+    try std.testing.expect(@TypeOf(parsed.compressed_size) == u64);
 }
 
 pub const ExtendedTimestamp = struct {
@@ -300,7 +276,9 @@ test "iterator" {
 
         const id = f.asHeaderID() orelse return error.BadHeaderId;
         switch (id) {
-            .extended_timestamp, .info_zip_unix_new => extraMeta = try f.parse(.none),
+            .extended_timestamp, .info_zip_unix_new => {
+                extraMeta = try f.parse(.none);
+            },
             .zip64_extended_extra_field => {
                 const ctx: Context = .{
                     .zip64_extended_extra_field = .{
