@@ -32,20 +32,12 @@ pub const Extra = struct {
 
 test "extra field header id" {
     {
-        const f: Extra = .{
-            .id = 0x0001,
-            .data = undefined,
-        };
-
+        const f: Extra = .{ .id = 0x0001, .data = undefined };
         try std.testing.expect(f.asHeaderID() == zip.HeaderId.zip64_extended_extra_field);
     }
 
     {
-        const f: Extra = .{
-            .id = 0xFFFF,
-            .data = undefined,
-        };
-
+        const f: Extra = .{ .id = 0xFFFF, .data = undefined };
         try std.testing.expect(f.asHeaderID() == null);
     }
 }
@@ -53,52 +45,50 @@ test "extra field header id" {
 test "extra field parse" {
     // zero fields
     {
-        const f: Extra = .{
-            .id = 0x0001,
-            .data = &[_]u8{0} ** 8,
+        const f: Extra = .{ .id = 0x0001, .data = &[_]u8{0} ** 8 };
+        const output = try f.parse(.{
+            .zip64_extended_extra_field = .{
+                .compressed_size = 0,
+                .uncompressed_size = 0,
+                .disk_number_start = 0,
+                .local_file_header_relative_offset = 0,
+            },
+        });
+
+        const expected: ExtraFieldMeta = .{
+            .zip64_extended_extra_field = .{
+                .compressed_size = 0,
+                .uncompressed_size = 0,
+                .disk_number_start = 0,
+                .local_file_header_relative_offset = 0,
+            },
         };
 
-        const parsed = try f.parse(.{ .zip64_extended_extra_field = .{
-            .compressed_size = 0,
-            .uncompressed_size = 0,
-            .disk_number_start = 0,
-            .local_file_header_relative_offset = 0,
-        } });
-
-        const expected: ExtraFieldMeta = .{ .zip64_extended_extra_field = .{
-            .compressed_size = 0,
-            .uncompressed_size = 0,
-            .disk_number_start = 0,
-            .local_file_header_relative_offset = 0,
-        } };
-
-        std.debug.print("parsed: {}\n", .{parsed});
-        try std.testing.expectEqualDeep(parsed, expected);
+        try std.testing.expectEqualDeep(output, expected);
     }
 
     // null fields
     {
-        const f: Extra = .{
-            .id = 0x0001,
-            .data = &[_]u8{},
+        const f: Extra = .{ .id = 0x0001, .data = &[_]u8{} };
+        const output = try f.parse(.{
+            .zip64_extended_extra_field = .{
+                .compressed_size = null,
+                .uncompressed_size = null,
+                .disk_number_start = null,
+                .local_file_header_relative_offset = null,
+            },
+        });
+
+        const expected: ExtraFieldMeta = .{
+            .zip64_extended_extra_field = .{
+                .compressed_size = null,
+                .uncompressed_size = null,
+                .disk_number_start = null,
+                .local_file_header_relative_offset = null,
+            },
         };
 
-        const parsed = try f.parse(.{ .zip64_extended_extra_field = .{
-            .compressed_size = null,
-            .uncompressed_size = null,
-            .disk_number_start = null,
-            .local_file_header_relative_offset = null,
-        } });
-
-        const expected: ExtraFieldMeta = .{ .zip64_extended_extra_field = .{
-            .compressed_size = null,
-            .uncompressed_size = null,
-            .disk_number_start = null,
-            .local_file_header_relative_offset = null,
-        } };
-
-        std.debug.print("parsed: {}\n", .{parsed});
-        try std.testing.expectEqualDeep(parsed, expected);
+        try std.testing.expectEqualDeep(output, expected);
     }
 }
 
@@ -150,12 +140,8 @@ fn parseZip64Extended(
     return result;
 }
 
-test "parseZip64Extended" {
-    const ef: Extra = .{
-        .data = &[_]u8{ 6, 0, 0, 0, 0, 0, 0, 0 },
-        .id = 0x1,
-    };
-
+test "parse ZIP64 extended information" {
+    const ef: Extra = .{ .data = &[_]u8{ 6, 0, 0, 0, 0, 0, 0, 0 }, .id = 0x1 };
     const parsed = try parseZip64Extended(ef.data, .{
         .zip64_extended_extra_field = .{
             .compressed_size = 6,
@@ -210,29 +196,30 @@ pub const Iterator = struct {
 
 test "iterator" {
     var extra = [_]u8{
-        85, 84, 5, 0, 3, 4, 210, 153, 105, 117, 120, 11, 0, 1, 4, 232, 3, 0, 0, 4, 232, 3, 0, 0, 1, 0, 8, 0, 6, 0, 0, 0, 0, 0, 0, 0,
+        85,  84,  5,   0, 3, 4, 210, 153, 105,
+        117, 120, 11,  0, 1, 4, 232, 3,   0,
+        0,   4,   232, 3, 0, 0, 1,   0,   8,
+        0,   6,   0,   0, 0, 0, 0,   0,   0,
     };
 
-    var iter: Iterator = .{
-        .buf = &extra,
-    };
-
+    var iter: Iterator = .{ .buf = &extra };
     while (try iter.next()) |f| {
         std.debug.print("extra.id 0x{x}\n", .{f.id});
 
-        // const id = f.asHeaderID() orelse return error.InvalidHeaderID;
-        // switch (id) {
-        //     .zip64_extended_extra_field => {
-        //         _ = try parseZip64Extended(f.data, .{
-        //             .compressed = 6,
-        //             .uncompressed = 4294967295,
-        //             .local_file_header_relative_offset = 0,
-        //             .disk_number_start = 0,
-        //         });
-        //
-        //         break;
-        //     },
-        //     else => {},
-        // }
+        const id = f.asHeaderID() orelse return error.BadHeaderId;
+        switch (id) {
+            .zip64_extended_extra_field => {
+                const ctx: Context = .{
+                    .zip64_extended_extra_field = .{
+                        .compressed_size = 6,
+                        .disk_number_start = 0,
+                        .uncompressed_size = 4294967295,
+                        .local_file_header_relative_offset = 0,
+                    },
+                };
+                _ = try f.parse(ctx);
+            },
+            else => {},
+        }
     }
 }
