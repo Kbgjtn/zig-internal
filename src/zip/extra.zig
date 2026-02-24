@@ -148,6 +148,7 @@ fn parseZip64Extended(
     return result;
 }
 
+// TODO add test cases
 test "parse ZIP64 extended information" {
     const ef: Extra = .{ .data = &[_]u8{ 6, 0, 0, 0, 0, 0, 0, 0 }, .id = 0x1 };
     const parsed = try parseZip64Extended(ef.data, .{
@@ -175,6 +176,7 @@ pub const ExtendedTimestamp = struct {
     creation_time_unix: ?u32 = null,
 };
 
+// TODO (dapa) unit test
 fn parseExtendedTimestamp(data: []const u8, _: Context) !ExtendedTimestamp {
     var result: ExtendedTimestamp = .{};
     if (data.len < 1) return error.Empty;
@@ -219,6 +221,7 @@ const InfoZipNewUnix = struct {
     gid: ?u32,
 };
 
+// TODO (dapa) unit test
 fn parseInfoZipUnixNew(data: []const u8, _: Context) !InfoZipNewUnix {
     var output: InfoZipNewUnix = undefined;
     if (data.len < 1) return error.Empty;
@@ -248,6 +251,7 @@ fn parseInfoZipUnixNew(data: []const u8, _: Context) !InfoZipNewUnix {
     return output;
 }
 
+// TODO (dapa) unit test
 pub const Iterator = struct {
     buf: []const u8,
     offset: usize = 0,
@@ -296,6 +300,7 @@ test "iterator" {
 
         const id = f.asHeaderID() orelse return error.BadHeaderId;
         switch (id) {
+            .extended_timestamp, .info_zip_unix_new => extraMeta = try f.parse(.none),
             .zip64_extended_extra_field => {
                 const ctx: Context = .{
                     .zip64_extended_extra_field = .{
@@ -306,12 +311,6 @@ test "iterator" {
                     },
                 };
                 extraMeta = try f.parse(ctx);
-            },
-            .extended_timestamp => {
-                extraMeta = try f.parse(.none);
-            },
-            .info_zip_unix_new => {
-                extraMeta = try f.parse(.none);
             },
             else => {
                 std.debug.print("unsupported parser for the given HeaderId {}\n", .{id});
