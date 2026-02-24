@@ -3,8 +3,8 @@ const zip = @import("zip.zig");
 
 const Context = union(enum) {
     zip64_extended_extra_field: struct {
-        uncompressed: ?u32,
-        compressed: ?u32,
+        uncompressed_size: ?u32,
+        compressed_size: ?u32,
         local_file_header_relative_offset: ?u32,
         disk_number_start: ?u16,
     },
@@ -20,9 +20,12 @@ pub const Extra = struct {
     }
 
     fn parse(self: Extra, ctx: Context) !ExtraFieldMeta {
-        switch (self.asHeaderID()) {
-            .zip64_extended_extra_field => .{ .zip64_extended_extra_field = try parseZip64Extended(self.data, ctx) },
-            null => {},
+        const id = self.asHeaderID() orelse return error.BadHeaderId;
+        switch (id) {
+            .zip64_extended_extra_field => return .{
+                .zip64_extended_extra_field = try parseZip64Extended(self.data, ctx),
+            },
+            else => return error.BadHeaderId,
         }
     }
 };
@@ -34,7 +37,7 @@ test "extra field header id" {
             .data = undefined,
         };
 
-        try std.testing.expectEqual(f.asHeaderID(), zip.HeaderId.zip64_extended_extra_field);
+        try std.testing.expect(f.asHeaderID() == zip.HeaderId.zip64_extended_extra_field);
     }
 
     {
@@ -43,13 +46,64 @@ test "extra field header id" {
             .data = undefined,
         };
 
-        try std.testing.expectEqual(f.asHeaderID(), null);
+        try std.testing.expect(f.asHeaderID() == null);
+    }
+}
+
+test "extra field parse" {
+    // zero fields
+    {
+        const f: Extra = .{
+            .id = 0x0001,
+            .data = &[_]u8{0} ** 8,
+        };
+
+        const parsed = try f.parse(.{ .zip64_extended_extra_field = .{
+            .compressed_size = 0,
+            .uncompressed_size = 0,
+            .disk_number_start = 0,
+            .local_file_header_relative_offset = 0,
+        } });
+
+        const expected: ExtraFieldMeta = .{ .zip64_extended_extra_field = .{
+            .compressed_size = 0,
+            .uncompressed_size = 0,
+            .disk_number_start = 0,
+            .local_file_header_relative_offset = 0,
+        } };
+
+        std.debug.print("parsed: {}\n", .{parsed});
+        try std.testing.expectEqualDeep(parsed, expected);
+    }
+
+    // null fields
+    {
+        const f: Extra = .{
+            .id = 0x0001,
+            .data = &[_]u8{},
+        };
+
+        const parsed = try f.parse(.{ .zip64_extended_extra_field = .{
+            .compressed_size = null,
+            .uncompressed_size = null,
+            .disk_number_start = null,
+            .local_file_header_relative_offset = null,
+        } });
+
+        const expected: ExtraFieldMeta = .{ .zip64_extended_extra_field = .{
+            .compressed_size = null,
+            .uncompressed_size = null,
+            .disk_number_start = null,
+            .local_file_header_relative_offset = null,
+        } };
+
+        std.debug.print("parsed: {}\n", .{parsed});
+        try std.testing.expectEqualDeep(parsed, expected);
     }
 }
 
 const ExtraFieldMeta = union(enum) {
     zip64_extended_extra_field: Zip64Extended,
-    none,
 };
 
 const Zip64Extended = struct {
@@ -66,12 +120,12 @@ fn parseZip64Extended(
     var result: Zip64Extended = .{};
     var reader = std.Io.Reader.fixed(data);
 
-    if (ctx.zip64_extended_extra_field.compressed) |v| {
+    if (ctx.zip64_extended_extra_field.uncompressed_size) |v| {
         result.uncompressed_size =
             if (v == 0xFFFFFFFF) try reader.takeInt(u64, .little) else @intCast(v);
     }
 
-    if (ctx.zip64_extended_extra_field.compressed) |v| {
+    if (ctx.zip64_extended_extra_field.compressed_size) |v| {
         result.compressed_size =
             if (v == 0xFFFFFFFF) try reader.takeInt(u64, .little) else @intCast(v);
     }
@@ -104,8 +158,8 @@ test "parseZip64Extended" {
 
     const parsed = try parseZip64Extended(ef.data, .{
         .zip64_extended_extra_field = .{
-            .compressed = 6,
-            .uncompressed = 4294967295,
+            .compressed_size = 6,
+            .uncompressed_size = 4294967295,
             .local_file_header_relative_offset = 0,
             .disk_number_start = 0,
         },
