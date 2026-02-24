@@ -3,6 +3,7 @@
 /// -
 const std = @import("std");
 const time = @import("time.zig");
+const Extra = @import("extra.zig");
 
 // A ZIP file is correctly identified by the presence of an EOCDR (`END OF
 // CENTRAL DIRECTORY RECORD`) which is located at the end of the archive
@@ -77,7 +78,7 @@ pub const GeneralPurposeFlags = packed struct(u16) {
 /// 19: IBM LZ77 z
 /// 98: PPMd version I, Rev 1
 pub const CompressionMethod = enum(u16) {
-    store = 0x0,
+    stored = 0x0,
     deflate = 0x8,
     _,
 };
@@ -98,7 +99,7 @@ pub const CompressionMethod = enum(u16) {
 /// produces a byte-exact layout which matches the binary format.
 pub const LocalFileHeader = extern struct {
     signature: u32 align(1),
-    version: u16 align(1),
+    version_needed_to_extract: u16 align(1),
     flags: GeneralPurposeFlags align(1),
     compression_method: CompressionMethod align(1),
     last_modification_time: u16 align(1),
@@ -112,18 +113,102 @@ pub const LocalFileHeader = extern struct {
     // File name (variable size)
     // Extra field (variable size)
 
+    const signature_marker: u32 = 0x04034b50;
+
+    // TODO should this returned the parsed extra if any?
+    // (dapa) NOPE
+    pub fn read(
+        r: *std.fs.File.Reader,
+        offset: u64,
+    ) !LocalFileHeader {
+        try r.seekTo(offset);
+        const header = try r.interface.takeStruct(LocalFileHeader, .little);
+        if (header.signature != signature_marker) return error.ZipBadSignature;
+        if (header.flags.encrypted) {
+            return error.ZipUnsupportedEncryption;
+        }
+
+        // r.interface.toss(header.filename_len);
+        // std.debug.print("seek after reading lfh.filename {}\n", .{r.logicalPos()});
+        //
+        // var extra_buf: [max_u16]u8 = undefined;
+        // const extra = extra_buf[0..header.extra_len];
+        // try r.interface.readSliceAll(extra);
+        //
+        // std.debug.print("seek after reading lfh.filename {}\n", .{r.logicalPos()});
+        // std.debug.print("extra ok: {}\n", .{extra.len == header.extra_len});
+        //
+        // var zip64_extended_extra: Extra.Zip64Extended = .{
+        //     .compressed_size = header.compressed_size,
+        //     .uncompressed_size = header.uncompressed_size,
+        // };
+        //
+        // if (header.requires_zip64()) {
+        //     var iter: Extra.Iterator = .{ .buf = extra };
+        //     while (try iter.next()) |field| {
+        //         const id = field.asHeaderID() orelse return error.BadHeaderID;
+        //         if (id == HeaderId.zip64_extended_extra_field) {
+        //             const ctx: Extra.Context = .{
+        //                 .zip64_extended_extra_field = .{
+        //                     .uncompressed_size = header.uncompressed_size,
+        //                     .compressed_size = header.compressed_size,
+        //                     .disk_number_start = null,
+        //                     .local_file_header_relative_offset = null,
+        //                 },
+        //             };
+        //
+        //             const out = try field.parse(ctx);
+        //             zip64_extended_extra = out.zip64_extended_extra_field;
+        //         }
+        //     }
+        // }
+        //
+        // std.debug.print("extra metadata [lfh]: {}\n", .{zip64_extended_extra});
+        // header.print();
+        // std.debug.print("seek after reading lfh.extra {}\n", .{r.logicalPos()});
+        //
+        // if (header.compression_method == CompressionMethod.deflate) {
+        //     var flate_buf: [std.compress.flate.max_window_len]u8 = undefined;
+        //     var decompress: std.compress.flate.Decompress = .init(&r.interface, .raw, &flate_buf);
+        //     std.debug.print("data decompressed:\n", .{});
+        //
+        //     while (true) {
+        //         const byte = decompress.reader.takeByte() catch |err| switch (err) {
+        //             error.EndOfStream => break,
+        //             else => return err,
+        //         };
+        //
+        //         std.debug.print("{c}", .{byte});
+        //     }
+        // } else if (header.compression_method == CompressionMethod.stored) {
+        //     var data_buf: [4096]u8 = undefined; // output buffer
+        //     // try r.seekTo(zip64_extended_extra.compressed_size);
+        //     const data = data_buf[0..zip64_extended_extra.compressed_size];
+        //     try r.interface.readSliceAll(data);
+        //     std.debug.print("data (0): {s}\n", .{data});
+        // }
+
+        return header;
+    }
+
+    pub fn requires_zip64(s: LocalFileHeader) bool {
+        return s.compressed_size == 0xFFFFFFFF or
+            s.uncompressed_size == 0xFFFFFFFF;
+    }
+
     pub fn print(self: LocalFileHeader) void {
         std.debug.print("Local File Header\n", .{});
-        std.debug.print("  signature 0x{x}\n", .{self.signature});
-        std.debug.print("  version {d:.2}\n", .{@as(f32, @floatFromInt(self.version)) / 10.0});
-        std.debug.print("  flags {}\n", .{self.flags});
-        std.debug.print("  last_modification_time {}\n", .{time.decodeDOSTime(self.last_modification_time)});
-        std.debug.print("  last_modification_date {}\n", .{time.decodeDosDate(self.last_modification_date)});
-        std.debug.print("  crc-32 checksum {d}\n", .{self.crc32});
-        std.debug.print("  compressed_size {d}\n", .{self.compressed_size});
-        std.debug.print("  uncompressed_size {d}\n", .{self.uncompressed_size});
-        std.debug.print("  filename_len {d}\n", .{self.filename_len});
-        std.debug.print("  extra_len {d}\n", .{self.extra_len});
+        std.debug.print("  signature                    0x{x}\n", .{self.signature});
+        std.debug.print("  version_needed_to_extract    {d:.2}\n", .{@as(f32, @floatFromInt(self.version_needed_to_extract)) / 10.0});
+        std.debug.print("  flags                        {}\n", .{self.flags});
+        std.debug.print("  compression_method           {any}\n", .{self.compression_method});
+        std.debug.print("  last_modification_time       {}\n", .{time.decodeDOSTime(self.last_modification_time)});
+        std.debug.print("  last_modification_date       {}\n", .{time.decodeDosDate(self.last_modification_date)});
+        std.debug.print("  crc-32 checksum              {x}\n", .{self.crc32});
+        std.debug.print("  compressed_size              {d}\n", .{self.compressed_size});
+        std.debug.print("  uncompressed_size            {d}\n", .{self.uncompressed_size});
+        std.debug.print("  filename_len                 {d}\n", .{self.filename_len});
+        std.debug.print("  extra_len                    {d}\n", .{self.extra_len});
     }
 };
 
@@ -157,38 +242,38 @@ const FileData = struct {
     header: LocalFileHeader,
     offset: u64,
 
-    pub fn parseExtra(extra: []const u8) !ExtraMetadata {
-        var meta = ExtraMetadata{};
-        var offset: usize = 0;
-
-        while (offset < extra.len) {
-            if (offset + 4 > extra.len) {
-                return error.ZipExtraInvalid;
-            }
-
-            const header_id: HeaderID = @enumFromInt(std.mem.readInt(u16, extra[offset..][0..2], .little));
-            const size = std.mem.readInt(u16, extra[offset + 2 ..][0..2], .little);
-
-            offset += 4;
-
-            if (offset + size > extra.len) {
-                return error.ZipExtraInvalid;
-            }
-
-            const data = extra[offset .. offset + size];
-            switch (header_id) {
-                .zip64_extended_extra_field => try meta.parseZip64Extended(data),
-                .extended_timestamp => try meta.parseExtendedTimestamp(data),
-                // 0x7875 => try meta.parseUnixExtra(data),
-                else => {},
-            }
-
-            offset += size;
-        }
-
-        std.debug.print("meta {}\n", .{meta});
-        return meta;
-    }
+    // pub fn parseExtra(extra: []const u8) !ExtraMetadata {
+    //     var meta = ExtraMetadata{};
+    //     var offset: usize = 0;
+    //
+    //     while (offset < extra.len) {
+    //         if (offset + 4 > extra.len) {
+    //             return error.ZipExtraInvalid;
+    //         }
+    //
+    //         const header_id: HeaderId = @enumFromInt(std.mem.readInt(u16, extra[offset..][0..2], .little));
+    //         const size = std.mem.readInt(u16, extra[offset + 2 ..][0..2], .little);
+    //
+    //         offset += 4;
+    //
+    //         if (offset + size > extra.len) {
+    //             return error.ZipExtraInvalid;
+    //         }
+    //
+    //         const data = extra[offset .. offset + size];
+    //         switch (header_id) {
+    //             .zip64_extended_extra_field => try meta.parseZip64Extended(data),
+    //             .extended_timestamp => try meta.parseExtendedTimestamp(data),
+    //             // 0x7875 => try meta.parseUnixExtra(data),
+    //             else => {},
+    //         }
+    //
+    //         offset += size;
+    //     }
+    //
+    //     std.debug.print("meta {}\n", .{meta});
+    //     return meta;
+    // }
 
     pub fn read(
         self: FileData,
@@ -211,12 +296,12 @@ const FileData = struct {
             const extra = extra_buf[0..self.header.extra_len];
             try stream.interface.readSliceAll(extra);
 
-            const extra_meta = try parseExtra(extra);
-            std.debug.print("extra: {}\n", .{extra_meta});
+            // const extra_meta = try parseExtra(extra);
+            // std.debug.print("extra: {}\n", .{extra_meta});
         }
 
         switch (self.header.compression_method) {
-            .store, .deflate => {},
+            .stored, .deflate => {},
             else => return error.UnsupportedCompressionMethod,
         }
 
@@ -316,20 +401,27 @@ pub const CentralDirectoryFileHeader = extern struct {
         return std.math.add(u64, extra_field_offset, self.comment_len) catch return error.Zip64SizeOverflow;
     }
 
+    pub fn requires_zip64(self: CentralDirectoryFileHeader) bool {
+        return @as(u64, self.local_file_header_relative_offset) == 0xFFFFFFFF or
+            @as(u64, self.compressed_size) == 0xFFFFFFFF or
+            @as(u64, self.uncompressed_size) == 0xFFFFFFFF or
+            @as(u32, self.disk_number_start) == 0xFFF;
+    }
+
     pub fn print(self: CentralDirectoryFileHeader) void {
         std.debug.print("CentralDirectoryFileHeader\n", .{});
         std.debug.print("  signature:                 0x{x}\n", .{self.signature});
         std.debug.print("  version_made_by:           {}\n", .{self.version_made_by});
         std.debug.print("  version_needed_to_extract: {d:.1}\n", .{@as(f64, @floatFromInt(self.version_needed_to_extract)) / 10.0});
         std.debug.print("  flags:                     {}\n", .{self.flags});
-        std.debug.print("  compression_method:        {d}\n", .{@intFromEnum(self.compression_method)});
+        std.debug.print("  compression_method:        {any}\n", .{self.compression_method});
         std.debug.print("  last_modification_time:    {}\n", .{
             time.decodeDOSTime(self.last_modification_time),
         });
         std.debug.print("  last_modification_date:    {}\n", .{
             time.decodeDosDate(self.last_modification_date),
         });
-        std.debug.print("  crc32:                     0x{x}\n", .{self.crc32});
+        std.debug.print("  crc32:                     {x}\n", .{self.crc32});
         std.debug.print("  compressed_size:           {d}\n", .{self.compressed_size});
         std.debug.print("  uncompressed_size:         {d}\n", .{self.uncompressed_size});
         std.debug.print("  filename_len:              {d}\n", .{self.filename_len});
@@ -543,7 +635,8 @@ const EndOfCentralDirectoryRecord64 = extern struct {
             // PKWARE proprietary extensions
 
             const remaining = header.record_size - size;
-            try reader.seekBy(@as(i64, @intCast(remaining)));
+            // try reader.seekBy(@as(i64, @intCast(remaining)));
+            reader.interface.toss(remaining);
         }
 
         try record.validateStructure(offset);
@@ -787,7 +880,9 @@ const EndOfCentralDirectoryRecord = extern struct {
     }
 
     pub fn print(self: EndOfCentralDirectoryRecord) void {
-        std.debug.print("EndOfCentralDirectoryRecord\n", .{});
+        std.debug.print("End-of-central-directory record\n", .{});
+        std.debug.print("-------------------------------\n", .{});
+
         std.debug.print(".signature 0x{X}\n", .{self.signature});
         std.debug.print(".disk_number {d}\n", .{self.disk_number});
         std.debug.print(".central_directory_disk_number {d}\n", .{self.central_directory_disk_number});
@@ -795,7 +890,7 @@ const EndOfCentralDirectoryRecord = extern struct {
         std.debug.print(".record_count_total {d}\n", .{self.record_count_total});
         std.debug.print(".central_directory_size {d}\n", .{self.central_directory_size});
         std.debug.print(".central_directory_offset {d}\n", .{self.central_directory_offset});
-        std.debug.print(".comment_len {d}\n", .{self.comment_len});
+        std.debug.print(".comment_len {d}\n\n", .{self.comment_len});
     }
 };
 
@@ -853,7 +948,7 @@ const data_descriptor_signature: u32 = 0x50_4B_07_08;
 /// refs:
 /// - [4.5 Extensible Data Fields](https://pkwaredownloads.blob.core.windows.net/pem/APPNOTE.txt)
 /// - [Extra Fields](https://libzip.org/specifications/extrafld.txt)
-pub const HeaderID = enum(u16) {
+pub const HeaderId = enum(u16) {
     // The current Header ID mappings defined by PKWARE are:
     /// Zip64 extended information extra field
     zip64_extended_extra_field = 0x0001,
@@ -977,7 +1072,7 @@ pub const ExtraMetadata = struct {
     ///
     /// This entry in the Local header must include BOTH original
     /// and compressed file sizes.
-    fn parseZip64Extended(self: *ExtraMetadata, data: []const u8) !void {
+    pub fn parseZip64Extended(self: *ExtraMetadata, data: []const u8) !void {
         var offset: usize = 0;
         if (offset + 8 <= data.len) {
             self.zip64_uncompressed_size =
@@ -1196,73 +1291,67 @@ const Iterator = struct {
             self.cd_offset += entry_size;
         }
 
+        std.debug.print("seek after reading cdfh {}\n", .{self.reader.logicalPos()});
+
         var file_name_buf: [256]u8 = undefined;
         const file_name = file_name_buf[0..cdfh.filename_len];
         try self.reader.interface.readSliceAll(file_name);
 
-        std.debug.print("file_name: {s}\n", .{file_name});
-        std.debug.print("file_name addr: {*}\n", .{file_name.ptr});
+        std.debug.print("next.file_name: {s}\n", .{file_name});
 
         var extra_buf: [max_u16]u8 = undefined;
         const extra = extra_buf[0..cdfh.extra_len];
         try self.reader.interface.readSliceAll(extra);
-
-        std.debug.print("extra : {x}\n", .{extra});
-        std.debug.print("extra addr: {*}\n", .{extra.ptr});
-        std.debug.print("extra len: {}\n", .{extra.len});
 
         if (cdfh.comment_len > 0) {
             try self.reader.seekBy(cdfh.comment_len);
         }
 
         // Resolve size and offsets
+        // var compressed_size: u64 = @as(u64, cdfh.compressed_size);
+        // var uncompressed_size: u64 = @as(u64, cdfh.uncompressed_size);
+        // var lfh_offset: u64 = @as(u64, cdfh.local_file_header_relative_offset);
+        // var disk_number_start: u32 = @as(u32, cdfh.disk_number_start);
 
-        var compressed_size = @as(u64, cdfh.compressed_size);
-        var uncompressed_size = @as(u64, cdfh.uncompressed_size);
-        var lfh_offset = @as(u64, cdfh.local_file_header_relative_offset);
+        var zip64_extended_extra: Extra.Zip64Extended = .{
+            .compressed_size = @intCast(cdfh.compressed_size),
+            .uncompressed_size = @intCast(cdfh.uncompressed_size),
+            .local_file_header_relative_offset = @intCast(cdfh.local_file_header_relative_offset),
+            .disk_number_start = @intCast(cdfh.disk_number_start),
+        };
 
-        const requires_zip64_entry = compressed_size == 0xFFFFFFFF or
-            uncompressed_size == 0xFFFFFFFF or lfh_offset == 0xFFFFFFFF;
+        if (cdfh.requires_zip64()) {
+            var iter: Extra.Iterator = .{ .buf = extra };
 
-        if (requires_zip64_entry) {
-            const parsed = try parseExtra(extra, .{
-                .need_uncompressed = uncompressed_size == 0xFFFFFFFF,
-                .need_compressed = compressed_size == 0xFFFFFFFF,
-                .need_offset = lfh_offset == 0xFFFFFFFF,
-            });
+            while (try iter.next()) |field| {
+                const id = field.asHeaderID() orelse return error.BadHeaderID;
+                if (id == HeaderId.zip64_extended_extra_field) {
+                    const ctx: Extra.Context = .{
+                        .zip64_extended_extra_field = .{
+                            .uncompressed_size = cdfh.uncompressed_size,
+                            .compressed_size = cdfh.compressed_size,
+                            .disk_number_start = cdfh.disk_number_start,
+                            .local_file_header_relative_offset = cdfh.local_file_header_relative_offset,
+                        },
+                    };
 
-            if (uncompressed_size == 0xFFFFFFFF) {
-                if (parsed.uncompressed == null) return error.ZipMalformed;
-                uncompressed_size = parsed.uncompressed.?;
-            }
-
-            if (compressed_size == 0xFFFFFFFF) {
-                if (parsed.compressed == null) return error.ZipMalformed;
-                compressed_size = parsed.compressed.?;
-            }
-
-            if (lfh_offset == 0xFFFFFFFF) {
-                if (parsed.offset == null) return error.ZipMalformed;
-                lfh_offset = parsed.offset.?;
+                    const out = try field.parse(ctx);
+                    zip64_extended_extra = out.zip64_extended_extra_field;
+                }
             }
         }
 
-        std.debug.print("lfh_offset: {}\n", .{lfh_offset});
-        std.debug.print("uncompressed_size: {}\n", .{uncompressed_size});
-        std.debug.print("compressed_size: {}\n", .{compressed_size});
+        const lfh = try LocalFileHeader.read(
+            self.reader,
+            zip64_extended_extra.local_file_header_relative_offset,
+        );
+        // lfh.print();
 
-        // TODO Access the Local File Header
-        try self.reader.seekTo(lfh_offset);
-        const lfh = try self.reader.interface.takeStruct(LocalFileHeader, .little);
-        if (lfh.signature != std.mem.readInt(u32, &[_]u8{ 0x50, 0x4B, 3, 4 }, .little)) {
-            return error.ZipBadSignature;
-        }
-
-        lfh.print();
+        // validate compressed_size and uncompressed_size cdfh and lfh
 
         return FileData{
             .header = lfh,
-            .offset = cdfh.local_file_header_relative_offset,
+            .offset = cdfh.local_file_header_relative_offset + local_file_header_size,
         };
     }
 
@@ -1270,43 +1359,39 @@ const Iterator = struct {
     // should only parse the extra data field by the given header_id in parameters
     fn parseExtra(
         extra: []const u8,
-        options: struct {
-            need_uncompressed: bool = false,
-            need_compressed: bool = false,
-            need_offset: bool = false,
-        },
     ) !struct {
+        offset: ?u64,
         compressed: ?u64,
         uncompressed: ?u64,
-        offset: ?u64,
     } {
         var meta = ExtraMetadata{};
         var i: usize = 0;
 
-        _ = options;
-
         while (i + 4 <= extra.len) {
-            const id: HeaderID = @enumFromInt(std.mem.readInt(u16, extra[i..][0..2], .little));
+            const id: HeaderId = @enumFromInt(std.mem.readInt(u16, extra[i..][0..2], .little));
             const size = std.mem.readInt(u16, extra[i + 2 ..][0..2], .little);
+            i += 4;
 
-            if (i + 4 + size > extra.len) {
+            if (i + size > extra.len) {
                 return error.ZipBadExtraFields;
             }
 
             std.debug.print("header_id 0x{x}\n", .{id});
             std.debug.print("data_size {d}\n", .{size});
 
-            const data = extra[i + 4 .. i + 4 + size];
+            const data = extra[i .. i + size];
+            std.debug.print("field_data: {any}\n", .{data[0..]});
             switch (id) {
                 .zip64_extended_extra_field => try meta.parseZip64Extended(data),
                 .extended_timestamp => try meta.parseExtendedTimestamp(data),
+
                 // 0x7875 => try meta.parseUnixExtra(data),
                 else => {
                     // Ignore other extra fields
                 },
             }
 
-            i += 4 + size;
+            i += size;
         }
 
         // std.debug.print("meta: {any}\n", .{meta});
@@ -1326,10 +1411,10 @@ const Iterator = struct {
 
 test "eocd_structure" {
     // const with_comment_zip = "sample/with_comment.zip";
-    // const my_epub = "sample/accessible_epub_3.epub";
-    const as_zip64 = "sample/as_zip64.zip";
+    const my_epub = "sample/accessible_epub_3.epub";
+    // const as_zip64 = "sample/as_zip64.zip";
 
-    var file = try std.fs.cwd().openFile(as_zip64, .{ .mode = .read_only });
+    var file = try std.fs.cwd().openFile(my_epub, .{ .mode = .read_only });
     defer file.close();
 
     var buf: [1024]u8 = undefined;
@@ -1337,26 +1422,21 @@ test "eocd_structure" {
 
     var iter = try Iterator.init(&freader);
     var total_files: usize = 0;
+
     while (try iter.next()) |fd| {
-        var filename_buffer: [128]u8 = undefined;
-        const fname = try fd.read(&freader, &filename_buffer);
-        std.debug.print("filename: {s}\n", .{fname});
+        _ = fd;
+        // var filename_buffer: [128]u8 = undefined;
+        // const fname = try fd.read(&freader, &filename_buffer);
+        // std.debug.print("filename: {s}\n", .{fname});
+
+        if (total_files == 27) {
+            break;
+        }
+
         total_files += 1;
     }
 
     std.debug.print("total_files: {d}\n", .{total_files});
-
-    // var comment_buffer: [256]u8 = undefined;
-    // const out = try EndOfCentralDirectoryRecord.readComment(
-    //     file_reader,
-    //     try file_reader.getSize(),
-    //     eocdr.getOffset(),
-    //     eocdr.comment_len,
-    //     &comment_buffer,
-    // );
-
-    // std.debug.print("comment: {s}\n", .{out});
-
 }
 
 test {
@@ -1377,6 +1457,7 @@ test {
         const filename = filename_buf[0..entry.filename_len];
         try reader.seekTo(entry.header_zip_offset + @sizeOf(CentralDirectoryFileHeader));
         try reader.interface.readSliceAll(filename);
+
         // std.debug.print("filename: {s}\n", .{filename});
         // std.debug.print("size of CentralDirectoryFileHeader: {d}\n", .{@sizeOf(CentralDirectoryFileHeader)});
         count += 1;
