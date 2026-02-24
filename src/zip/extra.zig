@@ -8,7 +8,13 @@ const Context = union(enum) {
         local_file_header_relative_offset: ?u32,
         disk_number_start: ?u16,
     },
+    extended_timestamps: struct {},
     none,
+};
+
+const ParsedMetadata = union(enum) {
+    zip64_extended_extra_field: Zip64Extended,
+    extended_timestamps: ExtendedTimestamp,
 };
 
 pub const Extra = struct {
@@ -19,11 +25,14 @@ pub const Extra = struct {
         return std.enums.fromInt(zip.HeaderId, self.id);
     }
 
-    fn parse(self: Extra, ctx: Context) !ExtraFieldMeta {
+    fn parse(self: Extra, ctx: Context) !ParsedMetadata {
         const id = self.asHeaderID() orelse return error.BadHeaderId;
         switch (id) {
             .zip64_extended_extra_field => return .{
                 .zip64_extended_extra_field = try parseZip64Extended(self.data, ctx),
+            },
+            .extended_timestamp => return .{
+                .extended_timestamps = try parseExtendedTimestamp(self.data, ctx),
             },
             else => return error.BadHeaderId,
         }
@@ -55,7 +64,7 @@ test "extra field parse" {
             },
         });
 
-        const expected: ExtraFieldMeta = .{
+        const expected: ParsedMetadata = .{
             .zip64_extended_extra_field = .{
                 .compressed_size = 0,
                 .uncompressed_size = 0,
@@ -79,7 +88,7 @@ test "extra field parse" {
             },
         });
 
-        const expected: ExtraFieldMeta = .{
+        const expected: ParsedMetadata = .{
             .zip64_extended_extra_field = .{
                 .compressed_size = null,
                 .uncompressed_size = null,
@@ -91,10 +100,6 @@ test "extra field parse" {
         try std.testing.expectEqualDeep(output, expected);
     }
 }
-
-const ExtraFieldMeta = union(enum) {
-    zip64_extended_extra_field: Zip64Extended,
-};
 
 const Zip64Extended = struct {
     uncompressed_size: ?u64 = null,
@@ -161,6 +166,40 @@ test "parse ZIP64 extended information" {
     try std.testing.expect(@TypeOf(parsed.compressed_size) == ?u64);
 }
 
+pub const ExtendedTimestamp = struct {
+    mod_time_unix: ?u32 = null,
+    access_time_unix: ?u32 = null,
+    creation_time_unix: ?u32 = null,
+};
+
+fn parseExtendedTimestamp(data: []const u8, _: Context) !ExtendedTimestamp {
+    var result: ExtendedTimestamp = .{};
+    if (data.len < 1) return error.InvalidExtraField;
+
+    const flags = data[0];
+    var offset: usize = 1;
+
+    if ((flags & 0x01) != 0 and offset + 4 <= data.len) {
+        result.mod_time_unix = std.mem.readInt(u32, data[offset..][0..4], .little);
+        offset += 4;
+    }
+
+    if ((flags & 0x02) != 0 and offset + 4 <= data.len) {
+        result.access_time_unix = std.mem.readInt(u32, data[offset..][0..4], .little);
+        offset += 4;
+    }
+
+    if ((flags & 0x04) != 0 and offset + 4 <= data.len) {
+        result.creation_time_unix = std.mem.readInt(u32, data[offset..][0..4], .little);
+    }
+
+    if (offset != data.len) {
+        return error.Malformed;
+    }
+
+    return result;
+}
+
 pub const Iterator = struct {
     buf: []const u8,
     offset: usize = 0,
@@ -202,6 +241,8 @@ test "iterator" {
     };
 
     var iter: Iterator = .{ .buf = &extra };
+    var extraMeta: ParsedMetadata = undefined;
+
     while (try iter.next()) |f| {
         std.debug.print("extra.id 0x{x}\n", .{f.id});
 
@@ -216,9 +257,17 @@ test "iterator" {
                         .local_file_header_relative_offset = 0,
                     },
                 };
-                _ = try f.parse(ctx);
+                extraMeta = try f.parse(ctx);
             },
-            else => {},
+            .extended_timestamp => {
+                extraMeta = try f.parse(.none);
+            },
+            else => {
+                std.debug.print("unsupported parser for the given HeaderId {}\n", .{id});
+                continue;
+            },
         }
+
+        std.debug.print("metadata: {}\n", .{extraMeta});
     }
 }
