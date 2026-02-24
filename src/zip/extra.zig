@@ -8,13 +8,13 @@ const Context = union(enum) {
         local_file_header_relative_offset: ?u32,
         disk_number_start: ?u16,
     },
-    extended_timestamps: struct {},
     none,
 };
 
 const ParsedMetadata = union(enum) {
     zip64_extended_extra_field: Zip64Extended,
     extended_timestamps: ExtendedTimestamp,
+    info_zip_unix_new: InfoZipNewUnix,
 };
 
 pub const Extra = struct {
@@ -33,6 +33,9 @@ pub const Extra = struct {
             },
             .extended_timestamp => return .{
                 .extended_timestamps = try parseExtendedTimestamp(self.data, ctx),
+            },
+            .info_zip_unix_new => return .{
+                .info_zip_unix_new = try parseInfoZipUnixNew(self.data, ctx),
             },
             else => return error.BadHeaderId,
         }
@@ -174,7 +177,7 @@ pub const ExtendedTimestamp = struct {
 
 fn parseExtendedTimestamp(data: []const u8, _: Context) !ExtendedTimestamp {
     var result: ExtendedTimestamp = .{};
-    if (data.len < 1) return error.InvalidExtraField;
+    if (data.len < 1) return error.Empty;
 
     const flags = data[0];
     var offset: usize = 1;
@@ -198,6 +201,51 @@ fn parseExtendedTimestamp(data: []const u8, _: Context) !ExtendedTimestamp {
     }
 
     return result;
+}
+
+/// Currently stores Unix UIDs/GIDs up to 32 bits.
+//         Value         Size        Description
+//         -----         ----        -----------
+// (UnixN) 0x7875        Short       tag for this extra block type ("ux")
+//         TSize         Short       total data size for this block
+//         Version       1 byte      version of this extra field, currently 1
+//         UIDSize       1 byte      Size of UID field
+//         UID           Variable    UID for this entry
+//         GIDSize       1 byte      Size of GID field
+//         GID           Variable    GID for this entry
+const InfoZipNewUnix = struct {
+    version: ?u8,
+    uid: ?u32,
+    gid: ?u32,
+};
+
+fn parseInfoZipUnixNew(data: []const u8, _: Context) !InfoZipNewUnix {
+    var output: InfoZipNewUnix = undefined;
+    if (data.len < 1) return error.Empty;
+
+    var reader: std.Io.Reader = .fixed(data);
+
+    // version of this extra field, currently 1
+    output.version = try reader.takeByte();
+    if (output.version != 1) {
+        return error.BadVersion;
+    }
+
+    const uid_size = try reader.takeByte();
+    if (uid_size > 0 and reader.seek + uid_size <= data.len) {
+        output.uid = try reader.takeInt(u32, .little);
+    }
+
+    const gid_size = try reader.takeByte();
+    if (gid_size > 0 and reader.seek + gid_size <= data.len) {
+        output.gid = try reader.takeInt(u32, .little);
+    }
+
+    if (reader.end != data.len) {
+        return error.Malformed;
+    }
+
+    return output;
 }
 
 pub const Iterator = struct {
@@ -260,6 +308,9 @@ test "iterator" {
                 extraMeta = try f.parse(ctx);
             },
             .extended_timestamp => {
+                extraMeta = try f.parse(.none);
+            },
+            .info_zip_unix_new => {
                 extraMeta = try f.parse(.none);
             },
             else => {
