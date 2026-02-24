@@ -239,77 +239,13 @@ const Version = packed struct(u16) {
     os: u8, // upper byte
 };
 
+/// File Data entry where the extract stream-reader should be
 const FileData = struct {
+    offset: u64,
     compressed_size: u64,
     header: LocalFileHeader,
-    offset: u64,
 
-    // pub fn parseExtra(extra: []const u8) !ExtraMetadata {
-    //     var meta = ExtraMetadata{};
-    //     var offset: usize = 0;
-    //
-    //     while (offset < extra.len) {
-    //         if (offset + 4 > extra.len) {
-    //             return error.ZipExtraInvalid;
-    //         }
-    //
-    //         const header_id: HeaderId = @enumFromInt(std.mem.readInt(u16, extra[offset..][0..2], .little));
-    //         const size = std.mem.readInt(u16, extra[offset + 2 ..][0..2], .little);
-    //
-    //         offset += 4;
-    //
-    //         if (offset + size > extra.len) {
-    //             return error.ZipExtraInvalid;
-    //         }
-    //
-    //         const data = extra[offset .. offset + size];
-    //         switch (header_id) {
-    //             .zip64_extended_extra_field => try meta.parseZip64Extended(data),
-    //             .extended_timestamp => try meta.parseExtendedTimestamp(data),
-    //             // 0x7875 => try meta.parseUnixExtra(data),
-    //             else => {},
-    //         }
-    //
-    //         offset += size;
-    //     }
-    //
-    //     std.debug.print("meta {}\n", .{meta});
-    //     return meta;
-    // }
-
-    pub fn read(
-        self: FileData,
-        stream: *std.fs.File.Reader,
-        buf: []u8,
-    ) ![]u8 {
-        if (buf.len < self.header.filename_len) {
-            return error.ZipInsufficientBuffer;
-        }
-
-        try stream.seekTo(self.offset + local_file_header_size);
-
-        const filename = buf[0..self.header.filename_len];
-        {
-            try stream.interface.readSliceAll(filename);
-        }
-
-        {
-            var extra_buf: [1024]u8 = undefined;
-            const extra = extra_buf[0..self.header.extra_len];
-            try stream.interface.readSliceAll(extra);
-
-            // const extra_meta = try parseExtra(extra);
-            // std.debug.print("extra: {}\n", .{extra_meta});
-        }
-
-        switch (self.header.compression_method) {
-            .stored, .deflate => {},
-            else => return error.UnsupportedCompressionMethod,
-        }
-
-        return filename;
-    }
-
+    pub fn read() ![]u8 {}
     pub fn extract() !void {}
 };
 
@@ -1317,7 +1253,7 @@ const Iterator = struct {
         const file_header = try LocalFileHeader.read(self.reader, zip64_extra.local_file_header_relative_offset);
         file_header.print();
 
-        std.debug.print("zip64_extra {}\n", .{zip64_extra});
+        // std.debug.print("zip64_extra {}\n", .{zip64_extra});
 
         // TODO (dapa) should i re-check on local file header too?
         // which one should be the trusted canonical sources?
