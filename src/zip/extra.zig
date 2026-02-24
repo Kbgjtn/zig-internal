@@ -1,27 +1,44 @@
 const std = @import("std");
 const zip = @import("zip.zig");
 
-pub const ExtraField = struct {
+const Context = union(enum) {
+    zip64_extended_extra_field: struct {
+        uncompressed: ?u32,
+        compressed: ?u32,
+        local_file_header_relative_offset: ?u32,
+        disk_number_start: ?u16,
+    },
+    none,
+};
+
+pub const Extra = struct {
     id: u16,
     data: []const u8,
 
-    fn asHeaderID(self: ExtraField) ?zip.HeaderID {
-        return std.enums.fromInt(zip.HeaderID, self.id);
+    fn asHeaderID(self: Extra) ?zip.HeaderId {
+        return std.enums.fromInt(zip.HeaderId, self.id);
+    }
+
+    fn parse(self: Extra, ctx: Context) !ExtraFieldMeta {
+        switch (self.asHeaderID()) {
+            .zip64_extended_extra_field => .{ .zip64_extended_extra_field = try parseZip64Extended(self.data, ctx) },
+            null => {},
+        }
     }
 };
 
-test "ExtraField.id" {
+test "extra field header id" {
     {
-        const f: ExtraField = .{
+        const f: Extra = .{
             .id = 0x0001,
             .data = undefined,
         };
 
-        try std.testing.expectEqual(f.asHeaderID(), zip.HeaderID.zip64_extended_extra_field);
+        try std.testing.expectEqual(f.asHeaderID(), zip.HeaderId.zip64_extended_extra_field);
     }
 
     {
-        const f: ExtraField = .{
+        const f: Extra = .{
             .id = 0xFFFF,
             .data = undefined,
         };
@@ -30,8 +47,9 @@ test "ExtraField.id" {
     }
 }
 
-const ParsedExtra = union(zip.HeaderID) {
+const ExtraFieldMeta = union(enum) {
     zip64_extended_extra_field: Zip64Extended,
+    none,
 };
 
 const Zip64Extended = struct {
@@ -43,39 +61,22 @@ const Zip64Extended = struct {
 
 fn parseZip64Extended(
     data: []const u8,
-    ctx: struct {
-        uncompressed: ?u32,
-        compressed: ?u32,
-        local_file_header_relative_offset: ?u32,
-        disk_number_start: ?u16,
-    },
+    ctx: Context,
 ) !Zip64Extended {
     var result: Zip64Extended = .{};
     var reader = std.Io.Reader.fixed(data);
 
-    // if (ctx.uncompressed == 0xFFFFFFFF and reader.seek + 8 <= data.len) {
-    //     result.uncompressed_size = try reader.takeInt(u64, .little);
-    // } else if (ctx.uncompressed) |v| {
-    //     result.uncompressed_size = @intCast(v):
-    // }
-
-    if (ctx.uncompressed) |v| {
+    if (ctx.zip64_extended_extra_field.compressed) |v| {
         result.uncompressed_size =
             if (v == 0xFFFFFFFF) try reader.takeInt(u64, .little) else @intCast(v);
     }
 
-    // if (ctx.compressed == 0xFFFFFFFF and reader.seek + 8 <= data.len) {
-    //     result.uncompressed_size = try reader.takeInt(u64, .little);
-    // } else if (ctx.compressed) |v| {
-    //     result.compressed_size = @intCast(v);
-    // }
-
-    if (ctx.compressed) |v| {
+    if (ctx.zip64_extended_extra_field.compressed) |v| {
         result.compressed_size =
             if (v == 0xFFFFFFFF) try reader.takeInt(u64, .little) else @intCast(v);
     }
 
-    if (ctx.local_file_header_relative_offset) |v| {
+    if (ctx.zip64_extended_extra_field.local_file_header_relative_offset) |v| {
         result.local_file_header_relative_offset =
             if (v == 0xFFFFFFFF)
                 try reader.takeInt(u64, .little)
@@ -83,13 +84,7 @@ fn parseZip64Extended(
                 @intCast(v);
     }
 
-    // if (ctx.local_file_header_relative_offset == 0xFFFFFFFF and reader.seek + 8 <= data.len) {
-    //     result.local_file_header_relative_offset = try reader.takeInt(u64, .little);
-    // } else if (ctx.local_file_header_relative_offset) |v| {
-    //     result.local_file_header_relative_offset = @intCast(v);
-    // }
-
-    if (ctx.disk_number_start) |v| {
+    if (ctx.zip64_extended_extra_field.disk_number_start) |v| {
         result.disk_number_start =
             if (v == 0xFFFF)
                 try reader.takeInt(u32, .little)
@@ -97,30 +92,23 @@ fn parseZip64Extended(
                 @intCast(v);
     }
 
-    // if (ctx.disk_number_start == 0xFFFF and reader.seek + 4 <= data.len) {
-    //     result.local_file_header_relative_offset = try reader.takeInt(u32, .little);
-    // } else if (ctx.disk_number_start) |v| {
-    //     result.disk_number_start = @intCast(v);
-    // }
-
-    if (reader.end != data.len) {
-        return error.Malformed;
-    }
-
+    if (reader.end != data.len) return error.Malformed;
     return result;
 }
 
 test "parseZip64Extended" {
-    const ef: ExtraField = .{
+    const ef: Extra = .{
         .data = &[_]u8{ 6, 0, 0, 0, 0, 0, 0, 0 },
         .id = 0x1,
     };
 
     const parsed = try parseZip64Extended(ef.data, .{
-        .compressed = 6,
-        .uncompressed = 4294967295,
-        .local_file_header_relative_offset = 0,
-        .disk_number_start = 0,
+        .zip64_extended_extra_field = .{
+            .compressed = 6,
+            .uncompressed = 4294967295,
+            .local_file_header_relative_offset = 0,
+            .disk_number_start = 0,
+        },
     });
 
     try std.testing.expect(parsed.disk_number_start == 0);
@@ -137,7 +125,7 @@ pub const Iterator = struct {
     buf: []const u8,
     offset: usize = 0,
 
-    pub fn next(self: *Iterator) !?ExtraField {
+    pub fn next(self: *Iterator) !?Extra {
         if (self.offset == self.buf.len) {
             return null;
         }
@@ -153,9 +141,10 @@ pub const Iterator = struct {
         if (self.offset + size > self.buf.len) {
             return error.ZipBadExtraField;
         }
+
         const data = self.buf[self.offset .. self.offset + size];
         std.debug.print("field_data: {any}\n", .{data[0..]});
-        const field = ExtraField{
+        const field = Extra{
             .id = id,
             .data = data,
         };
@@ -176,6 +165,7 @@ test "iterator" {
 
     while (try iter.next()) |f| {
         std.debug.print("extra.id 0x{x}\n", .{f.id});
+
         // const id = f.asHeaderID() orelse return error.InvalidHeaderID;
         // switch (id) {
         //     .zip64_extended_extra_field => {
