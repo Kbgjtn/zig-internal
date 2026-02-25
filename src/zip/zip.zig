@@ -1,6 +1,3 @@
-/// refs:
-/// - https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT
-/// -
 const std = @import("std");
 const time = @import("time.zig");
 const Extra = @import("extra.zig");
@@ -8,19 +5,19 @@ const Extra = @import("extra.zig");
 // A ZIP file is correctly identified by the presence of an EOCDR (`END OF
 // CENTRAL DIRECTORY RECORD`) which is located at the end of the archive
 // structure in order to allow the easy appending of new files.
-
+//
 // If the EOCDR (`END OF CENTRAL DIRECTORY RECORD`) record indicates a non empty archive,
 // the name of each file or directory of within the archive should be specified
 // in a EOCDR entry, along with other metdata about the entry, and
 // an offset into the ZIP file, pointing to the actual entry data.
-
+//
 // Requirement:
 // - Parse the EOCD
 // - Locate the Central Directory
 // - Find the file entry you want
 // - Jump to its Local File Header
 // - Decompress (w/e COMPRESSION alg)
-
+//
 // ZIP file format uses 32-bit CRC algorithm for archiving purpose. In order
 // to render the compressed files, a ZIP archive holds a directory at its end
 // that keeps the entry of the contained files and their location in the archive file.
@@ -28,6 +25,8 @@ const Extra = @import("extra.zig");
 // the compressed files. ZIP readers use the directory to load the list of files without
 // reading the entire ZIP archive. The format keeps dual copies of the directory structure
 // to provide greater protection against loss of data.
+// referrences:
+// - https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT
 
 /// General purpose bit flag with size 2-bytes.
 /// Bit 00: encrypted file
@@ -319,6 +318,7 @@ pub const CentralDirectoryFileHeader = extern struct {
     internal_file_attributes: u16 align(1),
     external_file_attributes: u32 align(1),
     local_file_header_relative_offset: u32 align(1),
+    // fixed size is 46
     // ...
     // filename (variable size)
     // extra field (variable size)
@@ -536,6 +536,7 @@ const EndOfCentralDirectoryRecord64 = extern struct {
     record_count_total: u64 align(1),
     central_directory_size: u64 align(1),
     central_directory_offset: u64 align(1),
+    // fixed size is 44
     // ...
     // Data sector (variable size) [optional]
 
@@ -644,6 +645,9 @@ const EndOfCentralDirectoryRecord = extern struct {
     central_directory_size: u32 align(1),
     central_directory_offset: u32 align(1),
     comment_len: u16 align(1),
+    // fixed size is 22
+    // ...
+    // comment (variable size)
 
     const size: u64 = 22;
 
@@ -663,10 +667,7 @@ const EndOfCentralDirectoryRecord = extern struct {
             self.central_directory_offset == 0xFFFFFFFF;
     }
 
-    pub fn read(f: *std.fs.File.Reader) !struct {
-        offset: u64,
-        record: EndOfCentralDirectoryRecord,
-    } {
+    pub fn read(f: *std.fs.File.Reader) !struct { offset: u64, record: EndOfCentralDirectoryRecord } {
         const file_size: u64 = try f.getSize();
         if (file_size < eocd_size) {
             return error.ZipNoEndRecord;
@@ -887,7 +888,7 @@ const data_descriptor_signature: u32 = 0x50_4B_07_08;
 /// of their native sizes. Unless specifically noted, all integer fields
 /// should be interpreted as unsigned (non-negative) numbers.
 ///
-/// refs:
+/// referrences:
 /// - [4.5 Extensible Data Fields](https://pkwaredownloads.blob.core.windows.net/pem/APPNOTE.txt)
 /// - [Extra Fields](https://libzip.org/specifications/extrafld.txt)
 pub const HeaderId = enum(u16) {
@@ -974,179 +975,6 @@ pub const HeaderId = enum(u16) {
     sms_qdos = 0xfb4a,
 };
 
-pub const ExtraMetadata = struct {
-    // ZIP64
-    zip64_uncompressed_size: ?u64 = null,
-    zip64_compressed_size: ?u64 = null,
-    zip64_local_header_offset: ?u64 = null,
-    zip64_disk_number_start: ?u32 = null,
-
-    // Extended timestamp (0x5455)
-    mod_time_unix: ?u32 = null,
-    access_time_unix: ?u32 = null,
-    creation_time_unix: ?u32 = null,
-
-    // Info-ZIP Unix (0x7875)
-    uid: ?u32 = null,
-    gid: ?u32 = null,
-
-    /// Parse ZIP64 Extended Information Data Fields
-    /// Note: all fields stored in Intel low-byte/high-byte order.
-    ///
-    ///         Value      Size       Description
-    ///         -----      ----       -----------
-    /// (ZIP64) 0x0001     2 bytes    Tag for this "extra" block type
-    ///
-    ///         Size       2 bytes    Size of this "extra" block
-    ///         Original
-    ///
-    ///         Size       8 bytes    Original uncompresseed file size
-    ///         Compressed
-    ///
-    ///         Size       8 bytes    Size of compressed data
-    ///         Relative Header
-    ///
-    ///         Offset     8 bytes    Offset of local header record
-    ///
-    ///         Disk Start
-    ///         Number     4 bytes    Number of the disk on which
-    ///                               this file starts
-    ///
-    /// This entry in the Local header must include BOTH original
-    /// and compressed file sizes.
-    pub fn parseZip64Extended(self: *ExtraMetadata, data: []const u8) !void {
-        var offset: usize = 0;
-        if (offset + 8 <= data.len) {
-            self.zip64_uncompressed_size =
-                std.mem.readInt(u64, data[offset..][0..8], .little);
-            offset += 8;
-        }
-
-        if (offset + 8 <= data.len) {
-            self.zip64_compressed_size =
-                std.mem.readInt(u64, data[offset..][0..8], .little);
-            offset += 8;
-        }
-
-        if (offset + 8 <= data.len) {
-            self.zip64_local_header_offset =
-                std.mem.readInt(u64, data[offset..][0..8], .little);
-            offset += 8;
-        }
-
-        if (offset + 4 <= data.len) {
-            self.zip64_disk_number_start =
-                std.mem.readInt(u32, data[offset..][0..4], .little);
-            offset += 4;
-        }
-
-        if (offset != data.len) return error.Zip64Malformed;
-    }
-
-    /// Extended Timestamps
-    /// format: 1 byte flags + optional 4-byte mod/access/creation timestamps
-    /// The following is the layout of the extended-timestamp extra block.
-    ///
-    /// (Last Revision 19970118)
-    ///
-    ///         Local-header version:
-    ///
-    ///         Value         Size        Description
-    ///         -----         ----        -----------
-    /// (time)  0x5455        Short       tag for this extra block type ("UT")
-    ///         TSize         Short       total data size for this block
-    ///         Flags         Byte        info bits
-    ///         (ModTime)     Long        time of last modification (UTC/GMT)
-    ///         (AcTime)      Long        time of last access (UTC/GMT)
-    ///         (CrTime)      Long        time of original creation (UTC/GMT)
-    ///
-    ///         Central-header version:
-    ///
-    ///         Value         Size        Description
-    ///         -----         ----        -----------
-    /// (time)  0x5455        Short       tag for this extra block type ("UT")
-    ///         TSize         Short       total data size for this block
-    ///         Flags         Byte        info bits (refers to local header!)
-    ///         (ModTime)     Long        time of last modification (UTC/GMT)
-    ///
-    /// The central-header extra field contains the modification time only,
-    /// or no timestamp at all.  TSize is used to flag its presence or
-    /// absence.
-    ///
-    /// The lower three bits of Flags in both headers indicate which time-
-    /// stamps are present in the LOCAL extra field:
-    /// bit 0       if set, modification time is present
-    /// bit 1       if set, access time is present
-    /// bit 2       if set, creation time is present
-    /// bits 3-7    reserved for additional timestamps; not set
-    ///
-    /// Those times that are present will appear in the order indicated, but
-    /// any combination of times may be omitted. (Creation time may be present
-    /// without access time, for example.)  TSize should equal
-    /// (1 + 4*(number of set bits in Flags)), as the block is currently defined.
-    /// Other timestamps may be added in the future.
-    fn parseExtendedTimestamp(self: *ExtraMetadata, data: []const u8) !void {
-        if (data.len < 1) return error.InvalidExtraField;
-
-        const flags = data[0];
-        var offset: usize = 1;
-
-        if ((flags & 0x01) != 0 and offset + 4 <= data.len) {
-            self.mod_time_unix = std.mem.readInt(u32, data[offset..][0..4], .little);
-            offset += 4;
-        }
-
-        if ((flags & 0x02) != 0 and offset + 4 <= data.len) {
-            self.access_time_unix = std.mem.readInt(u32, data[offset..][0..4], .little);
-            offset += 4;
-        }
-
-        if ((flags & 0x04) != 0 and offset + 4 <= data.len) {
-            self.creation_time_unix = std.mem.readInt(u32, data[offset..][0..4], .little);
-        }
-    }
-
-    fn parseUnixExtra(meta: *ExtraMetadata, data: []const u8) !void {
-        if (data.len < 3)
-            return error.InvalidExtraField;
-
-        var offset: usize = 0;
-
-        const version = data[offset];
-        _ = version; // currently unused
-        offset += 1;
-
-        const uid_size = data[offset];
-        offset += 1;
-
-        if (offset + uid_size > data.len)
-            return error.InvalidExtraField;
-
-        meta.uid = std.mem.readInt(
-            u32,
-            @ptrCast(data[offset .. offset + 4].ptr),
-            .little,
-        );
-        offset += uid_size;
-
-        if (offset >= data.len)
-            return;
-
-        const gid_size = data[offset];
-        offset += 1;
-
-        if (offset + gid_size > data.len)
-            return error.InvalidExtraField;
-
-        meta.gid = std.mem.readInt(
-            u32,
-            // data[offset .. offset + gid_size],
-            @ptrCast(data[offset .. offset + 4].ptr),
-            .little,
-        );
-    }
-};
-
 /// Iterator
 const Iterator = struct {
     reader: *std.fs.File.Reader,
@@ -1203,9 +1031,7 @@ const Iterator = struct {
         return iterator;
     }
 
-    pub fn next(
-        self: *Iterator,
-    ) !?FileData {
+    pub fn next(self: *Iterator) !?FileData {
         if (self.cd_index == self.total_entries) return null;
         if (self.cd_offset >= self.cd_end) return error.ZipMalformed;
 
@@ -1296,6 +1122,7 @@ const Iterator = struct {
         //
         // file_header.print();
 
+        // TODO (dapa)
         // validate compressed_size and uncompressed_size cdfh and lfh
 
         return FileData{
