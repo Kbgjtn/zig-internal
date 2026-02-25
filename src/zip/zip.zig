@@ -234,9 +234,46 @@ test "local file header structure" {
     );
 }
 
+const OS = enum(u8) {
+    /// MS-DOS and OS/2 (FAT / VFAT / FAT32 file systems)
+    ms_dos_and_os2 = 0,
+    amiga = 1,
+    open_vms = 2,
+    unix = 3,
+    vm_cms = 4,
+    atari_st = 5,
+    os2_hpfs = 6,
+    macintosh = 7,
+    z_system = 8,
+    cp_m = 9,
+    windows_ntfs = 10,
+    /// MVS (OS/390 - Z/OS)
+    mvs = 11,
+    vse = 12,
+    acorn_risc = 13,
+    vfat = 14,
+    alternate_mvs = 15,
+    be_os = 16,
+    tandem = 17,
+    /// OS/400
+    os400 = 18,
+    osx_darwin = 19,
+    // Unused 20 - 255
+};
+
+test "os enum" {
+    // valid values (0-19)
+    for (0..20) |i| {
+        const os = std.meta.intToEnum(OS, i) catch unreachable;
+        try std.testing.expect(os == @as(OS, @enumFromInt(i)));
+    }
+
+    // invalid value (20-255) should return @compileError
+}
+
 const Version = packed struct(u16) {
     spec_version: u8, // lower byte
-    os: u8, // upper byte
+    os: OS, // upper byte
 };
 
 /// File Data entry where the extract stream-reader should be
