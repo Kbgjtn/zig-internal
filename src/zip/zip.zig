@@ -333,31 +333,9 @@ pub const CentralDirectoryFileHeader = extern struct {
     ) !CentralDirectoryFileHeader {
         try reader.seekTo(offset);
         const cdfh = try reader.interface.takeStruct(CentralDirectoryFileHeader, .little);
-
         if (cdfh.signature != signature_mask) return error.ZipBadSignature;
         if (cdfh.disk_number_start != 0) return error.ZipUnsupportedMultiDisk;
-
-        // If any of these are 0xFFFFFFFF:
-        // - cdfh.compressed_size
-        // - cdfh.uncompressed_size
-        // - cdfh.local_file_header_relative_offset
-        // Then the real values are stored in extra field 0x0001
-        // TODO (dapa)
-        // Requirement:
-        // - parse extra field
-        // - extract zip64 extended information
-        // - override values
-        // Validation:
-        // - ZIP64 extra field actually exists
-        // - It contains expected fields
-        // - Its length mathces
-
-        // If sentinel is present but extra field missing -> error.ZipMalformed
-
-        //  try parseExtra();
-
         return cdfh;
-        // @panic("no implemented!");
     }
 
     fn computeEntrySize(self: CentralDirectoryFileHeader) !u64 {
