@@ -31,18 +31,18 @@ pub const Field = struct {
 
     pub fn parse(self: Field, ctx: Context) !ParsedMetadata {
         const id = self.asHeaderID() orelse return error.BadHeaderId;
-        switch (id) {
-            .zip64_extended_extra_field => return .{
+        return switch (id) {
+            .zip64_extended_extra_field => .{
                 .zip64_extended_extra_field = try parseZip64Extended(self.data, ctx),
             },
-            .extended_timestamp => return .{
+            .extended_timestamp => .{
                 .extended_timestamp = try parseExtendedTimestamp(self.data, ctx),
             },
-            .info_zip_unix_new => return .{
+            .info_zip_unix_new => .{
                 .info_zip_unix_new = try parseInfoZipUnixNew(self.data, ctx),
             },
-            else => return error.BadHeaderId,
-        }
+            else => error.BadHeaderId,
+        };
     }
 };
 

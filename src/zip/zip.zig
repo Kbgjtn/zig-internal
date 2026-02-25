@@ -2,6 +2,10 @@ const std = @import("std");
 const time = @import("time.zig");
 const Extra = @import("extra.zig");
 
+// 8
+// README.md
+
+
 // A ZIP file is correctly identified by the presence of an EOCDR (`END OF
 // CENTRAL DIRECTORY RECORD`) which is located at the end of the archive
 // structure in order to allow the easy appending of new files.
