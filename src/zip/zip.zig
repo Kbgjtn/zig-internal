@@ -2,10 +2,6 @@ const std = @import("std");
 const time = @import("time.zig");
 const Extra = @import("extra.zig");
 
-// 8
-// README.md
-
-
 // A ZIP file is correctly identified by the presence of an EOCDR (`END OF
 // CENTRAL DIRECTORY RECORD`) which is located at the end of the archive
 // structure in order to allow the easy appending of new files.
@@ -369,7 +365,7 @@ pub const CentralDirectoryFileHeader = extern struct {
         std.debug.print("Central Directory File Header\n", .{});
         std.debug.print("-------------------------------\n", .{});
         std.debug.print("    signature:                             0x{x}\n", .{self.signature});
-        std.debug.print("    version_made_by:                       {}\n", .{self.version_made_by});
+        std.debug.print("    version_made_by:                       [version {d}] [os {any}]\n", self.version_made_by);
         std.debug.print("    version_needed_to_extract:             {d:.1}\n", .{@as(f64, @floatFromInt(self.version_needed_to_extract)) / 10.0});
         std.debug.print("    flags:                                 {}\n", .{self.flags});
         std.debug.print("    compression_method:                    {any}\n", .{self.compression_method});
@@ -977,7 +973,17 @@ pub const HeaderId = enum(u16) {
     info_zip_unix_new = 0x7875,
     /// 0xfb4a        SMS//QDOS
     sms_qdos = 0xfb4a,
+    _,
 };
+
+// test "header id" {
+//     const unknown = std.enums.fromInt(HeaderId, 0xFFFF);
+//     if (unknown) |v| {
+//         std.debug.print("unknown {any}\n", .{v});
+//     } else {
+//         return error.Unknown;
+//     }
+// }
 
 /// Iterator
 const Iterator = struct {

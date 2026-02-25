@@ -186,15 +186,15 @@ fn parseExtendedTimestamp(data: []const u8, _: Context) !ExtendedTimestamp {
 }
 
 /// Currently stores Unix UIDs/GIDs up to 32 bits.
-//         Value         Size        Description
-//         -----         ----        -----------
-// (UnixN) 0x7875        Short       tag for this extra block type ("ux")
-//         TSize         Short       total data size for this block
-//         Version       1 byte      version of this extra field, currently 1
-//         UIDSize       1 byte      Size of UID field
-//         UID           Variable    UID for this entry
-//         GIDSize       1 byte      Size of GID field
-//         GID           Variable    GID for this entry
+///         Value         Size        Description
+///         -----         ----        -----------
+/// (UnixN) 0x7875        Short       tag for this extra block type ("ux")
+///         TSize         Short       total data size for this block
+///         Version       1 byte      version of this extra field, currently 1
+///         UIDSize       1 byte      Size of UID field
+///         UID           Variable    UID for this entry
+///         GIDSize       1 byte      Size of GID field
+///         GID           Variable    GID for this entry
 const InfoZipNewUnix = struct {
     version: ?u8,
     uid: ?u32,
