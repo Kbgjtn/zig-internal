@@ -279,9 +279,16 @@ const Version = packed struct(u16) {
 const FileData = struct {
     offset: u64,
     compressed_size: u64,
+    uncompressed_size: u64,
     header: LocalFileHeader,
 
+    // TODO (dapa): implement this stub
+
+    // allows writing directly to a file or buffer without allocating the entire file in memory
+    pub fn stream() ![]u8 {}
+    // returns the raw compressed bytes (or memory-mapped slice if large)
     pub fn read() ![]u8 {}
+    // decompresses the data according to header.compression_method
     pub fn extract() !void {}
 };
 
@@ -973,7 +980,6 @@ pub const HeaderId = enum(u16) {
     info_zip_unix_new = 0x7875,
     /// 0xfb4a        SMS//QDOS
     sms_qdos = 0xfb4a,
-    _,
 };
 
 // test "header id" {
@@ -1045,12 +1051,15 @@ const Iterator = struct {
         if (self.cd_index == self.total_entries) return null;
         if (self.cd_offset >= self.cd_end) return error.ZipMalformed;
 
-        const cdfh = try CentralDirectoryFileHeader.read(
-            self.reader,
-            self.cd_offset,
-        );
-
+        const cdfh = try CentralDirectoryFileHeader.read(self.reader, self.cd_offset);
         if (cdfh.flags.encrypted) return error.ZipUnsupportedEncryption;
+
+        if (cdfh.flags.data_descriptor) {
+            // LFH sizes might be zero
+            // always use CDFH + Zip64 values
+            std.debug.print("cdfh.flags.data_descriptor is active, may read the data_descriptor, lfh might be null\n", .{});
+            return error.NotImplemented;
+        }
 
         const entry_size = try cdfh.computeEntrySize();
         const entry_end = std.math.add(u64, self.cd_offset, entry_size) catch return error.ZipSizeOverflow;
@@ -1064,11 +1073,13 @@ const Iterator = struct {
             self.cd_offset += entry_size;
         }
 
-        var file_name_buf: [256]u8 = undefined;
-        const file_name = file_name_buf[0..cdfh.filename_len];
-        try self.reader.interface.readSliceAll(file_name);
+        // var file_name_buf: [256]u8 = undefined;
+        // const file_name = file_name_buf[0..cdfh.filename_len];
+        // try self.reader.interface.readSliceAll(file_name);
+        // skip the filename if not reading it
+        self.reader.interface.toss(cdfh.filename_len);
 
-        std.debug.print("Entry #{d} [{d}] - {s}\n", .{ self.cd_index + 1, self.cd_offset, file_name });
+        std.debug.print("Entry #{d} [{d}] - {s}\n", .{ self.cd_index + 1, self.cd_offset, "idk yet!" });
         cdfh.print();
 
         var extra_buf: [max_u16]u8 = undefined;
@@ -1088,7 +1099,7 @@ const Iterator = struct {
 
         if (cdfh.requires_zip64()) {
             const extra_iterator: Extra.Iterator = .{ .buf = extra };
-            const field = extra_iterator.find(HeaderId.zip64_extended_extra_field) orelse return error.Zip64Malformed;
+            const field = extra_iterator.find(HeaderId.zip64_extended_extra_field) orelse return error.ZipBadExtra;
             const ctx: Extra.Context = .{
                 .zip64_extended_extra_field = .{
                     .uncompressed_size = cdfh.uncompressed_size,
@@ -1101,46 +1112,71 @@ const Iterator = struct {
             zip64_extra = out.zip64_extended_extra_field;
         }
 
+        // Apparently this is optional?
         const file_header = try LocalFileHeader.read(self.reader, zip64_extra.local_file_header_relative_offset);
-        file_header.print();
 
-        // std.debug.print("zip64_extra {}\n", .{zip64_extra});
-
-        // TODO (dapa) should i re-check on local file header too?
-        // which one should be the trusted canonical sources?
-
-        // zip64_extra = .{
-        //     .compressed_size = @intCast(file_header.compressed_size),
-        //     .uncompressed_size = @intCast(file_header.uncompressed_size),
-        //     .disk_number_start = null,
-        //     .local_file_header_relative_offset = null,
-        // };
-        // if (file_header.requires_zip64()) {
-        //     const extra_iterator: Extra.Iterator = .{ .buf = extra };
-        //     const field = extra_iterator.find(HeaderId.zip64_extended_extra_field) orelse return error.Zip64Malformed;
-        //     const ctx: Extra.Context = .{
-        //         .zip64_extended_extra_field = .{
-        //             .uncompressed_size = file_header.uncompressed_size,
-        //             .compressed_size = file_header.compressed_size,
-        //             .local_file_header_relative_offset = null,
-        //             .disk_number_start = null,
-        //         },
-        //     };
-        //     const out = try field.parse(ctx);
-        //     zip64_extra = out.zip64_extended_extra_field;
-        // }
-        //
-        // file_header.print();
+        // Optional: validate LFH filename matches CDFH
+        // Always prefer CDFH + Zip64 extra for compressed_size and uncompressed_size
+        if (file_header.filename_len != cdfh.filename_len) {
+            // mismatch — either warn or fail depending on parser strictness
+            std.debug.print("WARN: LFH filename {d} differs from CDFH {}\n", .{
+                file_header.filename_len, cdfh.filename_len,
+            });
+        }
 
         // TODO (dapa)
         // validate compressed_size and uncompressed_size cdfh and lfh
+        // need to check if file_header.requires_zip64()
+        // otherwise, allways false, but need parse the extra fields data
+        if (file_header.compressed_size != zip64_extra.compressed_size or
+            file_header.uncompressed_size != zip64_extra.uncompressed_size)
+        {
+
+            // Usually only warn; only fail if strict parser
+            std.debug.print("LFH sizes differ from CDFH/Zip64, using CDFH values\n", .{});
+        }
+
+        file_header.print();
+        std.debug.print("zip64_extra {}\n", .{zip64_extra});
+
+        // Read “data descriptor” [optional]
+        // - if `cdfh.flags.data_descriptor` is set, the LFH size fields may be zero
+        // - Real sizes are written after the file data in the data descriptor
+        // - CDFH is the canonical source for sizes
 
         return FileData{
             .header = file_header,
             .compressed_size = zip64_extra.compressed_size,
+            .uncompressed_size = zip64_extra.uncompressed_size,
             .offset = zip64_extra.local_file_header_relative_offset,
         };
     }
+
+    // TODO (dapa) should i re-check on local file header too?
+    // which one should be the trusted canonical sources?
+
+    // zip64_extra = .{
+    //     .compressed_size = @intCast(file_header.compressed_size),
+    //     .uncompressed_size = @intCast(file_header.uncompressed_size),
+    //     .disk_number_start = null,
+    //     .local_file_header_relative_offset = null,
+    // };
+    // if (file_header.requires_zip64()) {
+    //     const extra_iterator: Extra.Iterator = .{ .buf = extra };
+    //     const field = extra_iterator.find(HeaderId.zip64_extended_extra_field) orelse return error.Zip64Malformed;
+    //     const ctx: Extra.Context = .{
+    //         .zip64_extended_extra_field = .{
+    //             .uncompressed_size = file_header.uncompressed_size,
+    //             .compressed_size = file_header.compressed_size,
+    //             .local_file_header_relative_offset = null,
+    //             .disk_number_start = null,
+    //         },
+    //     };
+    //     const out = try field.parse(ctx);
+    //     zip64_extra = out.zip64_extended_extra_field;
+    // }
+    //
+    // file_header.print();
 
     fn validateSizeFields(self: Iterator, file_size: u64) error{ EntryCountExceedsLimit, Zip64SizeOverflow, Zip64EmptyArchive }!void {
         // validate unified central directory bounds
