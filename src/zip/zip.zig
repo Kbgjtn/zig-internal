@@ -1125,6 +1125,12 @@ const Iterator = struct {
         }
 
         // TODO (dapa)
+        // validate the crc32 from file_header and cdfh
+        if (cdfh.crc32 != file_header.crc32) {
+            return error.ZipMalformed;
+        }
+
+        // TODO (dapa)
         // validate compressed_size and uncompressed_size cdfh and lfh
         // need to check if file_header.requires_zip64()
         // otherwise, allways false, but need parse the extra fields data
