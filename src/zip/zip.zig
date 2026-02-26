@@ -117,19 +117,12 @@ pub const LocalFileHeader = extern struct {
 
     // TODO should this returned the parsed extra if any?
     // (dapa) NOPE
-    pub fn read(
-        r: *std.fs.File.Reader,
-        offset: u64,
-    ) !LocalFileHeader {
+    pub fn read(r: *std.fs.File.Reader, offset: u64) !LocalFileHeader {
         try r.seekTo(offset);
         const header = try r.interface.takeStruct(LocalFileHeader, .little);
         if (header.signature != signature_marker) return error.ZipBadSignature;
-        if (r.logicalPos() != size) {
-            return error.BadFileHeader;
-        }
-        if (header.flags.encrypted) {
-            return error.ZipUnsupportedEncryption;
-        }
+        if (r.logicalPos() != size) return error.BadFileHeader;
+        if (header.flags.encrypted) return error.ZipUnsupportedEncryption;
 
         // r.interface.toss(header.filename_len);
         // std.debug.print("seek after reading lfh.filename {}\n", .{r.logicalPos()});
@@ -277,23 +270,6 @@ test "os enum" {
 const Version = packed struct(u16) {
     spec_version: u8, // lower byte
     os: OS, // upper byte
-};
-
-/// File Data entry where the extract stream-reader should be
-const FileData = struct {
-    offset: u64,
-    compressed_size: u64,
-    uncompressed_size: u64,
-    header: LocalFileHeader,
-
-    // TODO (dapa): implement this stub
-
-    // allows writing directly to a file or buffer without allocating the entire file in memory
-    pub fn stream() ![]u8 {}
-    // returns the raw compressed bytes (or memory-mapped slice if large)
-    pub fn read() ![]u8 {}
-    // decompresses the data according to header.compression_method
-    pub fn extract() !void {}
 };
 
 /// Central directory structure:
@@ -994,6 +970,35 @@ pub const HeaderId = enum(u16) {
 //         return error.Unknown;
 //     }
 // }
+
+/// File Data Entry where the extract stream-reader should be
+const FileData = struct {
+    offset: u64,
+    compressed_size: u64,
+    uncompressed_size: u64,
+    header: LocalFileHeader,
+
+    // TODO (dapa): implement this stub
+
+    // allows writing directly to a file or buffer without allocating the entire file in memory
+    pub fn stream() !void {}
+    // returns the raw compressed bytes (or memory-mapped slice if large)
+    pub fn read() ![]u8 {}
+    // decompresses the data according to header.compression_method
+    pub fn extract() !void {}
+
+    // utility functions
+    /// Compression method enum:
+    pub fn compression(self: *FileData) CompressionMethod {
+        return self.header.compression_method;
+    }
+
+    // filename / path
+    pub fn filename(self: *FileData) []const u8 {
+        _ = self;
+        @panic("no implemented!");
+    }
+};
 
 /// Iterator
 const Iterator = struct {
