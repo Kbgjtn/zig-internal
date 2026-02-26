@@ -113,6 +113,7 @@ pub const LocalFileHeader = extern struct {
     // Extra field (variable size)
 
     const signature_marker: u32 = 0x04034b50;
+    const size: u64 = 30;
 
     // TODO should this returned the parsed extra if any?
     // (dapa) NOPE
@@ -123,6 +124,9 @@ pub const LocalFileHeader = extern struct {
         try r.seekTo(offset);
         const header = try r.interface.takeStruct(LocalFileHeader, .little);
         if (header.signature != signature_marker) return error.ZipBadSignature;
+        if (r.logicalPos() != size) {
+            return error.BadFileHeader;
+        }
         if (header.flags.encrypted) {
             return error.ZipUnsupportedEncryption;
         }
