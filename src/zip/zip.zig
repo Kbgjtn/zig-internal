@@ -355,10 +355,10 @@ pub const CentralDirectoryFileHeader = extern struct {
     }
 
     pub fn requires_zip64(self: CentralDirectoryFileHeader) bool {
-        return @as(u64, self.local_file_header_relative_offset) == 0xFFFFFFFF or
-            @as(u64, self.compressed_size) == 0xFFFFFFFF or
-            @as(u64, self.uncompressed_size) == 0xFFFFFFFF or
-            @as(u32, self.disk_number_start) == 0xFFF;
+        return @as(u64, self.local_file_header_relative_offset) == 0xFFFF_FFFF or
+            @as(u64, self.compressed_size) == 0xFFFF_FFFF or
+            @as(u64, self.uncompressed_size) == 0xFFFF_FFFF or
+            @as(u32, self.disk_number_start) == 0xFFFF;
     }
 
     pub fn print(self: CentralDirectoryFileHeader) void {
