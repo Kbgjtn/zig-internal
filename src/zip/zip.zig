@@ -1076,7 +1076,7 @@ const Iterator = struct {
         try self.reader.interface.readSliceAll(extra);
 
         if (cdfh.comment_len > 0) {
-            try self.reader.seekBy(cdfh.comment_len);
+            self.reader.interface.toss(cdfh.comment_len);
         }
 
         var zip64_extra: Extra.Zip64Extended = .{
