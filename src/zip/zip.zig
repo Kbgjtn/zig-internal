@@ -30,18 +30,18 @@ const Extra = @import("extra.zig");
 // - https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT
 
 /// General purpose bit flag with size 2-bytes.
-/// Bit 00: encrypted file
-/// Bit 01: compression option
-/// Bit 02: compression option
-/// Bit 03: data descriptor
-/// Bit 04: enhanced deflation
-/// Bit 05: compressed patched data
-/// Bit 06: strong encryption
-/// Bit 07-10: unused
-/// Bit 11: language encoding
-/// Bit 12: reserved
-/// Bit 13: mask header values
-/// Bit 14-15: reserved
+///     Bit 00: encrypted file
+///     Bit 01: compression option
+///     Bit 02: compression option
+///     Bit 03: data descriptor
+///     Bit 04: enhanced deflation
+///     Bit 05: compressed patched data
+///     Bit 06: strong encryption
+///     Bit 07-10: unused
+///     Bit 11: language encoding
+///     Bit 12: reserved
+///     Bit 13: mask header values
+///     Bit 14-15: reserved
 pub const GeneralPurposeFlags = packed struct(u16) {
     encrypted: bool, // bit 0
     compression_option1: bool, // bit 1
