@@ -25,7 +25,8 @@ const Extra = @import("extra.zig");
 // the compressed files. ZIP readers use the directory to load the list of files without
 // reading the entire ZIP archive. The format keeps dual copies of the directory structure
 // to provide greater protection against loss of data.
-// referrences:
+//
+// references:
 // - https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT
 
 /// General purpose bit flag with size 2-bytes.
@@ -121,7 +122,7 @@ pub const LocalFileHeader = extern struct {
         try r.seekTo(offset);
         const header = try r.interface.takeStruct(LocalFileHeader, .little);
         if (header.signature != signature_marker) return error.ZipBadSignature;
-        if (r.logicalPos() != size) return error.BadFileHeader;
+        // if (r.logicalPos() != size) return error.BadFileHeader;
         if (header.flags.encrypted) return error.ZipUnsupportedEncryption;
 
         // r.interface.toss(header.filename_len);
@@ -195,17 +196,17 @@ pub const LocalFileHeader = extern struct {
     pub fn print(self: LocalFileHeader) void {
         std.debug.print("Local File Header\n", .{});
         std.debug.print("-------------------------------\n", .{});
-        std.debug.print("    signature                            0x{x}\n", .{self.signature});
-        std.debug.print("    version_needed_to_extract            {d:.2}\n", .{@as(f32, @floatFromInt(self.version_needed_to_extract)) / 10.0});
-        std.debug.print("    flags                                {}\n", .{self.flags});
-        std.debug.print("    compression_method                   {any}\n", .{self.compression_method});
-        std.debug.print("    last_modification_time               {}\n", .{time.decodeDOSTime(self.last_modification_time)});
-        std.debug.print("    last_modification_date               {}\n", .{time.decodeDosDate(self.last_modification_date)});
-        std.debug.print("    crc-32 checksum                      {x}\n", .{self.crc32});
-        std.debug.print("    compressed_size                      {d}\n", .{self.compressed_size});
-        std.debug.print("    uncompressed_size                    {d}\n", .{self.uncompressed_size});
-        std.debug.print("    filename_len                         {d}\n", .{self.filename_len});
-        std.debug.print("    extra_len                            {d}\n\n", .{self.extra_len});
+        std.debug.print("signature                 \t0x{x}\n", .{self.signature});
+        std.debug.print("version needed to extract \t{d:.2}\n", .{@as(f32, @floatFromInt(self.version_needed_to_extract)) / 10.0});
+        std.debug.print("flags                     \t{}\n", .{self.flags});
+        std.debug.print("compression method        \t{any}\n", .{self.compression_method});
+        std.debug.print("last modification time    \t{}\n", .{time.decodeDOSTime(self.last_modification_time)});
+        std.debug.print("last modification date    \t{}\n", .{time.decodeDosDate(self.last_modification_date)});
+        std.debug.print("crc-32 checksum           \t{x}\n", .{self.crc32});
+        std.debug.print("compressed size           \t{d}\n", .{self.compressed_size});
+        std.debug.print("uncompressed size         \t{d}\n", .{self.uncompressed_size});
+        std.debug.print("filename len              \t{d}\n", .{self.filename_len});
+        std.debug.print("extra len                 \t{d}\n\n", .{self.extra_len});
     }
 };
 
@@ -351,23 +352,23 @@ pub const CentralDirectoryFileHeader = extern struct {
     pub fn print(self: CentralDirectoryFileHeader) void {
         std.debug.print("Central Directory File Header\n", .{});
         std.debug.print("-------------------------------\n", .{});
-        std.debug.print("    signature:                             0x{x}\n", .{self.signature});
-        std.debug.print("    version_made_by:                       [version {d}] [os {any}]\n", self.version_made_by);
-        std.debug.print("    version_needed_to_extract:             {d:.1}\n", .{@as(f64, @floatFromInt(self.version_needed_to_extract)) / 10.0});
-        std.debug.print("    flags:                                 {}\n", .{self.flags});
-        std.debug.print("    compression_method:                    {any}\n", .{self.compression_method});
-        std.debug.print("    last_modification_time:                {}\n", .{time.decodeDOSTime(self.last_modification_time)});
-        std.debug.print("    last_modification_date:                {}\n", .{time.decodeDosDate(self.last_modification_date)});
-        std.debug.print("    crc32:                                 {x}\n", .{self.crc32});
-        std.debug.print("    compressed_size:                       {d}\n", .{self.compressed_size});
-        std.debug.print("    uncompressed_size:                     {d}\n", .{self.uncompressed_size});
-        std.debug.print("    filename_len:                          {d}\n", .{self.filename_len});
-        std.debug.print("    extra_len:                             {d}\n", .{self.extra_len});
-        std.debug.print("    comment_len:                           {d}\n", .{self.comment_len});
-        std.debug.print("    disk_number_start:                     {d}\n", .{self.disk_number_start});
-        std.debug.print("    internal_file_attributes:              {d}\n", .{self.internal_file_attributes});
-        std.debug.print("    external_file_attributes:              0x{x}\n", .{self.external_file_attributes});
-        std.debug.print("    local_file_header_offset:              {d}\n\n", .{self.local_file_header_relative_offset});
+        std.debug.print("signature:                   \t0x{x}\n", .{self.signature});
+        std.debug.print("version made by:             \t[version {d}] [os {any}]\n", self.version_made_by);
+        std.debug.print("version needed to extract:   \t{d:.1}\n", .{@as(f64, @floatFromInt(self.version_needed_to_extract)) / 10.0});
+        std.debug.print("flags:                       \t{}\n", .{self.flags});
+        std.debug.print("compression method:          \t{any}\n", .{self.compression_method});
+        std.debug.print("last modification time:      \t{}\n", .{time.decodeDOSTime(self.last_modification_time)});
+        std.debug.print("last modification date:      \t{}\n", .{time.decodeDosDate(self.last_modification_date)});
+        std.debug.print("crc-32 checksum:                       \t{x}\n", .{self.crc32});
+        std.debug.print("compressed size:             \t{d}\n", .{self.compressed_size});
+        std.debug.print("uncompressed size:           \t{d}\n", .{self.uncompressed_size});
+        std.debug.print("filename len:                \t{d}\n", .{self.filename_len});
+        std.debug.print("extra len:                   \t{d}\n", .{self.extra_len});
+        std.debug.print("comment len:                 \t{d}\n", .{self.comment_len});
+        std.debug.print("disk number start:           \t{d}\n", .{self.disk_number_start});
+        std.debug.print("internal file attributes:    \t{d}\n", .{self.internal_file_attributes});
+        std.debug.print("external file attributes:    \t0x{x}\n", .{self.external_file_attributes});
+        std.debug.print("local file header offset:    \t{d}\n\n", .{self.local_file_header_relative_offset});
     }
 };
 
@@ -824,27 +825,87 @@ const EndOfCentralDirectoryRecord = extern struct {
     }
 };
 
-/// File data
-/// Immediately following the local header for a file
-/// SHOULD be placed the compressed or stored data for the file.
-/// If the file is encrypted, the encryption header for the file
-/// SHOULD be placed after the local header and before the file
-/// data. The series of [local file header][encryption header]
-/// [file data][data descriptor] repeats for each file in the
-/// .ZIP archive.
+// cases this might appears:
+// - Streaming ZIP creation:
+//   - the writer doesn't yet know: the final compressed_size, final uncompressed_size, and final crc32
+//   - HTTP response stream
+//   - Pipe, stdout, cloud object storage stream
+// - on-the-fly compression
+// - zip64 streaming
+// - some libarary defaults
+//
+// [optional 0x08074b50 signature]
+// CRC-32                (4 bytes)
+// Compressed size       (4 or 8 bytes ZIP64)
+// Uncompressed size     (4 or 8 bytes ZIP64)
+
+/// 4.3.9  Data descriptor:
 ///
-/// Zero-byte files, directories, and other file types that
-/// contain no content MUST NOT include file data.
-/// Data Descriptor (Optional)
-/// Although not originally assigned a signature, the value
-/// 0x08074b50 has commonly been adopted as a signature value
-/// for the data descriptor record.
-/// When the Central Directory Encryption method is used,
-/// the data descriptor record is not required, but MAY be used.
-/// If present, and bit 3 of the general purpose bit field is set to
-/// indicate its presence, the values in fields of the data descriptor
-/// record MUST be set to binary zeros.
-const data_descriptor_signature: u32 = 0x50_4B_07_08;
+///    crc-32                          4 bytes
+///    compressed size                 4 bytes
+///    uncompressed size               4 bytes
+///
+///  4.3.9.1 This descriptor MUST exist if bit 3 of the general
+///  purpose bit flag is set (see below).  It is byte aligned
+///  and immediately follows the last byte of compressed data.
+///  This descriptor SHOULD be used only when it was not possible to
+///  seek in the output .ZIP file, e.g., when the output .ZIP file
+///  was standard output or a non-seekable device.  For ZIP64(tm) format
+///  archives, the compressed and uncompressed sizes are 8 bytes each.
+///
+///  4.3.9.3 Although not originally assigned a signature, the value
+///  0x08074b50 has commonly been adopted as a signature value
+///  for the data descriptor record.  Implementers SHOULD be
+///  aware that ZIP files MAY be encountered with or without this
+///  signature marking data descriptors and SHOULD account for
+///  either case when reading ZIP files to ensure compatibility.
+pub const DataDescriptor = packed struct {
+    signature: u32,
+    crc32: u32,
+    compressed_size: u64,
+    uncompressed_size: u64,
+
+    const signature_mask: u32 = 0x08_07_4b_50;
+
+    pub fn read(
+        r: *std.fs.File.Reader,
+        offset: u64,
+        is_zip64: bool,
+    ) !DataDescriptor {
+        try r.seekTo(offset);
+        const signature: u32 = try r.interface.takeInt(u32, .little);
+        const crc32: u32 = switch (signature) {
+            signature_mask => try r.interface.takeInt(u32, .little),
+            else => signature,
+        };
+
+        const compressed_size: u64 = switch (is_zip64) {
+            true => try r.interface.takeInt(u64, .little),
+            false => @as(u64, try r.interface.takeInt(u32, .little)),
+        };
+
+        const uncompressed_size: u64 = switch (is_zip64) {
+            true => try r.interface.takeInt(u64, .little),
+            false => @as(u64, try r.interface.takeInt(u32, .little)),
+        };
+
+        return .{
+            .signature = signature,
+            .crc32 = crc32,
+            .compressed_size = compressed_size,
+            .uncompressed_size = uncompressed_size,
+        };
+    }
+
+    pub fn print(self: DataDescriptor) void {
+        std.debug.print("Data Descriptor\n", .{});
+        std.debug.print("-------------------------------\n", .{});
+        std.debug.print("signature                  \t0x{x}\n", .{self.signature});
+        std.debug.print("compressed size            \t{d}\n", .{self.compressed_size});
+        std.debug.print("uncompressed size          \t{d}\n", .{self.uncompressed_size});
+        std.debug.print("crc-32 checksum            \t{x}\n\n", .{self.crc32});
+    }
+};
 
 // Archive decryption header
 // The Archive Decryption Header is introduced in version 6.2
@@ -875,7 +936,7 @@ const data_descriptor_signature: u32 = 0x50_4B_07_08;
 /// of their native sizes. Unless specifically noted, all integer fields
 /// should be interpreted as unsigned (non-negative) numbers.
 ///
-/// referrences:
+/// references:
 /// - [4.5 Extensible Data Fields](https://pkwaredownloads.blob.core.windows.net/pem/APPNOTE.txt)
 /// - [Extra Fields](https://libzip.org/specifications/extrafld.txt)
 pub const HeaderId = enum(u16) {
@@ -900,7 +961,6 @@ pub const HeaderId = enum(u16) {
     x509_certificate_id_and_signature = 0x0015,
     // X.509 Certificate ID for Central Directory
     x509_certificate_id_for_central_directory = 0x0016,
-
     // The Header ID mappings defined by Info-ZIP and third parties are:
     /// IBM S/390 attributes - uncompressed
     ibm_s390_attributes_uncompressed = 0x0065,
@@ -972,18 +1032,96 @@ pub const HeaderId = enum(u16) {
 // }
 
 /// File Data Entry where the extract stream-reader should be
-const FileData = struct {
+///
+/// Immediately following the local header for a file
+/// SHOULD be placed the compressed or stored data for the file.
+/// If the file is encrypted, the encryption header for the file
+/// SHOULD be placed after the local header and before the file
+/// data. The series of [local file header][encryption header]
+/// [file data][data descriptor] repeats for each file in the
+/// .ZIP archive.
+///
+/// Zero-byte files, directories, and other file types that
+/// contain no content MUST NOT include file data.
+/// Data Descriptor (Optional)
+/// Although not originally assigned a signature, the value
+/// 0x08074b50 has commonly been adopted as a signature value
+/// for the data descriptor record.
+/// When the Central Directory Encryption method is used,
+/// the data descriptor record is not required, but MAY be used.
+/// If present, and bit 3 of the general purpose bit field is set to
+/// indicate its presence, the values in fields of the data descriptor
+/// record MUST be set to binary zeros.
+pub const FileData = struct {
     offset: u64,
     compressed_size: u64,
     uncompressed_size: u64,
+    // TODO (dapa)  unwrap this
+
     header: LocalFileHeader,
 
-    // TODO (dapa): implement this stub
-
     // allows writing directly to a file or buffer without allocating the entire file in memory
-    pub fn stream() !void {}
+    pub fn stream(self: FileData, reader: *std.fs.File.Reader, writer: *std.Io.Writer) !usize {
+        // if flags.encrypted might need to read the encryption header
+        if (self.header.flags.encrypted) {
+            return error.NotImplemented;
+        }
+
+        // Use offset to seek to the start of the file's data
+        // immediately after LFH and optional encryption header.
+        const file_data_offset =
+            self.offset +
+            LocalFileHeader.size +
+            self.header.extra_len +
+            self.header.filename_len;
+
+        try reader.seekTo(file_data_offset);
+
+        if (self.header.compression_method == CompressionMethod.stored) {
+            var total_written: usize = 0;
+            while (true) {
+                const n = reader.interface.stream(writer, .unlimited) catch |err| switch (err) {
+                    error.EndOfStream => break,
+                    else => return err,
+                };
+
+                total_written += n;
+            }
+
+            return total_written;
+        }
+
+        const history_len = 32768;
+        const max_window_len = history_len * 2;
+        var decompress_buf: [max_window_len]u8 = undefined;
+        // Incremental read/decompress to a client-provided writer without full buffering.
+        var decompressor: std.compress.flate.Decompress = .init(
+            &reader.interface,
+            .raw,
+            &decompress_buf,
+        );
+
+        var total_written: usize = 0;
+
+        while (true) {
+            const n = decompressor.reader.stream(writer, .unlimited) catch |err| switch (err) {
+                error.EndOfStream => break,
+                else => return err,
+            };
+
+            total_written += n;
+        }
+
+        if (total_written != self.uncompressed_size) {
+            return error.FileDataMalformed;
+        }
+
+        return total_written;
+    }
+
     // returns the raw compressed bytes (or memory-mapped slice if large)
     pub fn read() ![]u8 {}
+
     // decompresses the data according to header.compression_method
     pub fn extract() !void {}
 
@@ -991,6 +1129,14 @@ const FileData = struct {
     /// Compression method enum:
     pub fn compression(self: *FileData) CompressionMethod {
         return self.header.compression_method;
+    }
+
+    /// Verify integrity post-extract; required for all ZIP tools.
+    pub fn crc32_checksum() u32 {}
+
+    /// Check general purpose bit 0; clients must handle auth headers.
+    pub fn is_encypted(self: FileData) bool {
+        return self.header.flags.encrypted;
     }
 
     // filename / path
@@ -1016,8 +1162,7 @@ const Iterator = struct {
 
     pub fn init(reader: *std.fs.File.Reader) !Iterator {
         const file_size = try reader.getSize();
-        std.debug.print("file_size: {}\n", .{file_size});
-
+        // std.debug.print("file_size: {}\n", .{file_size});
         // Read EOCD record
         const eocd = try EndOfCentralDirectoryRecord.read(reader);
         try eocd.record.validateStructure(file_size, eocd.offset);
@@ -1063,11 +1208,9 @@ const Iterator = struct {
         const cdfh = try CentralDirectoryFileHeader.read(self.reader, self.cd_offset);
         if (cdfh.flags.encrypted) return error.ZipUnsupportedEncryption;
 
-        if (cdfh.flags.data_descriptor) {
-            // LFH sizes might be zero
-            // always use CDFH + Zip64 values
-            std.debug.print("cdfh.flags.data_descriptor is active, may read the data_descriptor, lfh might be null\n", .{});
-            return error.NotImplemented;
+        switch (cdfh.compression_method) {
+            .stored, .deflate => {},
+            else => return error.ZipUnsupportedCompressionMethod,
         }
 
         const entry_size = try cdfh.computeEntrySize();
@@ -1088,8 +1231,8 @@ const Iterator = struct {
         // skip the filename if not reading it
         self.reader.interface.toss(cdfh.filename_len);
 
-        std.debug.print("Entry #{d} [{d}] - {s}\n", .{ self.cd_index + 1, self.cd_offset, "idk yet!" });
-        cdfh.print();
+        // std.debug.print("Entry #{d} [{d}] - {s}\n", .{ self.cd_index + 1, self.cd_offset, "idk yet!" });
+        // cdfh.print();
 
         var extra_buf: [max_u16]u8 = undefined;
         const extra = extra_buf[0..cdfh.extra_len];
@@ -1099,71 +1242,117 @@ const Iterator = struct {
             self.reader.interface.toss(cdfh.comment_len);
         }
 
-        var zip64_extra: Extra.Zip64Extended = .{
-            .compressed_size = @intCast(cdfh.compressed_size),
-            .uncompressed_size = @intCast(cdfh.uncompressed_size),
-            .local_file_header_relative_offset = @intCast(cdfh.local_file_header_relative_offset),
-            .disk_number_start = @intCast(cdfh.disk_number_start),
+        const requires_zip64 = cdfh.requires_zip64();
+        // APPNOTE explicitly forbids unnecessary Zip64 fields.
+        var extended_data: Extra.Zip64Extended = switch (requires_zip64) {
+            true => parse_zip64: {
+                const extra_iterator: Extra.Iterator = .{ .buf = extra };
+                const field = extra_iterator.find(HeaderId.zip64_extended_extra_field) orelse {
+                    return error.ZipBadExtra;
+                };
+
+                const ctx: Extra.Context = .{
+                    .zip64_extended_extra_field = .{
+                        .uncompressed_size = cdfh.uncompressed_size,
+                        .compressed_size = cdfh.compressed_size,
+                        .disk_number_start = cdfh.disk_number_start,
+                        .local_file_header_relative_offset = cdfh.local_file_header_relative_offset,
+                    },
+                };
+                const out = try field.parse(ctx);
+                break :parse_zip64 out.zip64_extended_extra_field;
+            },
+            false => .{
+                .compressed_size = @intCast(cdfh.compressed_size),
+                .uncompressed_size = @intCast(cdfh.uncompressed_size),
+                .local_file_header_relative_offset = @intCast(cdfh.local_file_header_relative_offset),
+                .disk_number_start = @intCast(cdfh.disk_number_start),
+            },
         };
 
-        if (cdfh.requires_zip64()) {
-            const extra_iterator: Extra.Iterator = .{ .buf = extra };
-            const field = extra_iterator.find(HeaderId.zip64_extended_extra_field) orelse return error.ZipBadExtra;
-            const ctx: Extra.Context = .{
-                .zip64_extended_extra_field = .{
-                    .uncompressed_size = cdfh.uncompressed_size,
-                    .compressed_size = cdfh.compressed_size,
-                    .disk_number_start = cdfh.disk_number_start,
-                    .local_file_header_relative_offset = cdfh.local_file_header_relative_offset,
-                },
-            };
-            const out = try field.parse(ctx);
-            zip64_extra = out.zip64_extended_extra_field;
-        }
-
         // Apparently this is optional?
-        const file_header = try LocalFileHeader.read(self.reader, zip64_extra.local_file_header_relative_offset);
+        var local_file_header = try LocalFileHeader.read(self.reader, extended_data.local_file_header_relative_offset);
+        // local_file_header.print();
 
         // Optional: validate LFH filename matches CDFH
         // Always prefer CDFH + Zip64 extra for compressed_size and uncompressed_size
-        if (file_header.filename_len != cdfh.filename_len) {
+        if (local_file_header.filename_len != cdfh.filename_len) {
             // mismatch — either warn or fail depending on parser strictness
             std.debug.print("WARN: LFH filename {d} differs from CDFH {}\n", .{
-                file_header.filename_len, cdfh.filename_len,
+                local_file_header.filename_len, cdfh.filename_len,
             });
+        }
+
+        // So, when the cdfh.flags.data_descriptor or file_header.flags.data_descriptor is true
+        // the Local File Header is still present, and is valid, but its "size" fields are not trustworthy.
+        // thus, we need to check into Data Descriptor:
+        // - crc32 checksum = 0
+        // - compressed_size = 0
+        // - uncompressed_size = 0 or the same as the cdfh.uncompressed_size (not guaranteed)
+
+        // std.debug.print("is_zip64 {}\n", .{cdfh.requires_zip64()});
+        // std.debug.print("logical pos post-lfh {}\n", .{self.reader.logicalPos()});
+
+        const data_descriptor_offset: u64 =
+            extended_data.local_file_header_relative_offset +
+            LocalFileHeader.size +
+            local_file_header.filename_len +
+            local_file_header.extra_len +
+            extended_data.compressed_size;
+
+        // std.debug.print("data_descriptor_offset {}\n", .{data_descriptor_offset});
+
+        if (cdfh.flags.data_descriptor) {
+            // LFH sizes might be zero
+            // always use CDFH + Zip64 values
+            // std.debug.print("WARN: cdfh.flags.data_descriptor is {}, may read the data_descriptor, lfh might be null\n", .{cdfh.flags.data_descriptor});
+            const data_descriptor = try DataDescriptor.read(
+                self.reader,
+                data_descriptor_offset,
+                requires_zip64,
+            );
+
+            if (data_descriptor.crc32 != 0) local_file_header.crc32 = data_descriptor.crc32;
+            if (data_descriptor.compressed_size != extended_data.compressed_size) extended_data.compressed_size = data_descriptor.compressed_size;
+            if (data_descriptor.compressed_size != extended_data.uncompressed_size) extended_data.uncompressed_size = data_descriptor.uncompressed_size;
+
+            data_descriptor.print();
+            // if (data_descriptor.uncompressed_size != 0) file_header.uncompressed_size = data_descriptor.uncompressed_size;
+            // return error.NotImplemented;
+        } else {
+            // if no flags.data_descriptor validate the sizes
+            if (local_file_header.compressed_size != extended_data.compressed_size or
+                local_file_header.uncompressed_size != extended_data.uncompressed_size)
+            {
+                // Usually only warn; only fail if strict parser
+                std.debug.print("LFH sizes differ from CDFH/Zip64, using CDFH values\n", .{});
+                return error.ZipMalformed;
+            }
         }
 
         // TODO (dapa)
         // validate the crc32 from file_header and cdfh
-        if (cdfh.crc32 != file_header.crc32) {
-            return error.ZipMalformed;
+        if (cdfh.crc32 != local_file_header.crc32) {
+            return error.ZipCRC32Mismatch;
         }
 
         // TODO (dapa)
         // validate compressed_size and uncompressed_size cdfh and lfh
         // need to check if file_header.requires_zip64()
         // otherwise, allways false, but need parse the extra fields data
-        if (file_header.compressed_size != zip64_extra.compressed_size or
-            file_header.uncompressed_size != zip64_extra.uncompressed_size)
-        {
 
-            // Usually only warn; only fail if strict parser
-            std.debug.print("LFH sizes differ from CDFH/Zip64, using CDFH values\n", .{});
-        }
-
-        file_header.print();
-        std.debug.print("zip64_extra {}\n", .{zip64_extra});
-
+        // std.debug.print("zip64_extra {}\n", .{extended_data});
+        // std.debug.print("next.last_seek_pos {}\n", .{self.reader.logicalPos()});
         // Read “data descriptor” [optional]
         // - if `cdfh.flags.data_descriptor` is set, the LFH size fields may be zero
         // - Real sizes are written after the file data in the data descriptor
         // - CDFH is the canonical source for sizes
 
         return FileData{
-            .header = file_header,
-            .compressed_size = zip64_extra.compressed_size,
-            .uncompressed_size = zip64_extra.uncompressed_size,
-            .offset = zip64_extra.local_file_header_relative_offset,
+            .header = local_file_header,
+            .compressed_size = extended_data.compressed_size,
+            .uncompressed_size = extended_data.uncompressed_size,
+            .offset = extended_data.local_file_header_relative_offset,
         };
     }
 
@@ -1206,10 +1395,12 @@ const Iterator = struct {
 
 test "eocd_structure" {
     // const with_comment_zip = "sample/with_comment.zip";
-    // const my_epub = "sample/accessible_epub_3.epub";
-    const as_zip64 = "sample/as_zip64.zip";
+    const my_epub = "sample/accessible_epub_3.epub";
+    // const as_zip64 = "sample/as_zip64.zip";
+    // const with_data_descriptor = "sample/with_data_descriptor.zip";
+    // const with_flated = "sample/with_flated.zip";
 
-    var file = try std.fs.cwd().openFile(as_zip64, .{ .mode = .read_only });
+    var file = try std.fs.cwd().openFile(my_epub, .{ .mode = .read_only });
     defer file.close();
 
     var buf: [1024]u8 = undefined;
@@ -1217,13 +1408,47 @@ test "eocd_structure" {
 
     var iter = try Iterator.init(&freader);
 
+    // var w_buf: [4096]u8 = undefined;
+    //
+    // var aw: std.Io.Writer = .fixed(&w_buf);
+    // // defer aw.deinit();
+    //
+    // while (try iter.next()) |fd| {
+    //     const n = fd.stream(&freader, &aw) catch |err| {
+    //         std.debug.print("error: {}\n", .{err});
+    //         continue;
+    //     };
+    //
+    //     std.debug.print("written_len {}: {s}\n", .{ n, w_buf[0..n] });
+    //     try aw.flush();
+    //
+    //     // var filename_buffer: [128]u8 = undefined;
+    //     // const fname = try fd.read(&freader, &filename_buffer);
+    //     // std.debug.print("filename: {s}\n", .{fname});
+    // }
+
+    var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer aw.deinit();
+
     while (try iter.next()) |fd| {
-        _ = fd;
+        _ = fd.stream(&freader, &aw.writer) catch |err| {
+            std.debug.print("error: {}\n", .{err});
+            continue;
+        };
+
+        // std.debug.print("written_len {}\n", .{n});
+        try aw.writer.flush();
+
         // var filename_buffer: [128]u8 = undefined;
         // const fname = try fd.read(&freader, &filename_buffer);
         // std.debug.print("filename: {s}\n", .{fname});
     }
+
+    // Print the contents (only up to written_len)
+
 }
+
+// var filename_buf: [std.fs.max_path_bytes]u8 = undefined;
 
 test {
     const myepub = "sample/accessible_epub_3.epub";
