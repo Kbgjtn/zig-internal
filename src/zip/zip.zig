@@ -210,25 +210,10 @@ pub const LocalFileHeader = extern struct {
     }
 };
 
-/// 4-bytes (0x04034b50 as little-endian order)
-const local_file_header_signature: u32 = 0x50_4B_03_04;
-const local_file_header_size: u32 = 30;
-
 test "local file header structure" {
-    try std.testing.expectEqual(
-        @sizeOf(LocalFileHeader),
-        local_file_header_size,
-    );
-
-    try std.testing.expectEqual(
-        @bitSizeOf(LocalFileHeader),
-        local_file_header_size * 8,
-    );
-
-    try std.testing.expectEqual(
-        std.mem.readInt(u32, &[_]u8{ 'P', 'K', 3, 4 }, .little),
-        0x04_03_4B_50,
-    );
+    try std.testing.expectEqual(@sizeOf(LocalFileHeader), LocalFileHeader.size);
+    try std.testing.expectEqual(@bitSizeOf(LocalFileHeader), LocalFileHeader.size * 8);
+    try std.testing.expectEqual(std.mem.readInt(u32, &[_]u8{ 'P', 'K', 3, 4 }, .little), LocalFileHeader.signature_marker);
 }
 
 const OS = enum(u8) {
