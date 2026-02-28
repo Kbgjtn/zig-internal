@@ -1057,10 +1057,13 @@ pub const FileData = struct {
         return self.header.flags.encrypted;
     }
 
-    // filename / path
-    pub fn filename(self: *FileData) []const u8 {
-        _ = self;
-        @panic("no implemented!");
+    /// read the current entry filename (path) with the given filename buffer
+    pub fn filaneme(self: FileData, reader: *std.fs.File.Reader, buffer: []u8) ![]u8 {
+        if (buffer.len < self.header.filename_len) return error.InsufficientBufferSize;
+        try reader.seekTo(self.offset + LocalFileHeader.size);
+        const fname = buffer[0..self.header.filename_len];
+        try reader.interface.readSliceAll(fname);
+        return fname[0..self.header.filename_len];
     }
 };
 
