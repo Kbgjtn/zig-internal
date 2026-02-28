@@ -1,7 +1,3 @@
-const std = @import("std");
-const time = @import("time.zig");
-const Extra = @import("extra.zig");
-
 // A ZIP file is correctly identified by the presence of an EOCDR (`END OF
 // CENTRAL DIRECTORY RECORD`) which is located at the end of the archive
 // structure in order to allow the easy appending of new files.
@@ -28,6 +24,10 @@ const Extra = @import("extra.zig");
 //
 // references:
 // - https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT
+
+const std = @import("std");
+const time = @import("time.zig");
+const Extra = @import("extra.zig");
 
 /// General purpose bit flag with size 2-bytes.
 ///     Bit 00: encrypted file
@@ -996,9 +996,8 @@ pub const FileData = struct {
 
         // Use offset to seek to the start of the file's data
         // immediately after LFH and optional encryption header.
-        const data_offset = self.logicalOffset();
-
-        try reader.seekTo(data_offset);
+        const offset = self.logicalOffset();
+        try reader.seekTo(offset);
 
         std.debug.print("seek {}\n", .{reader.interface.seek});
         std.debug.print("compression_method {}\n", .{self.header.compression_method});
@@ -1007,9 +1006,7 @@ pub const FileData = struct {
 
         switch (self.header.compression_method) {
             .stored => {
-                const n = try reader.interface.stream(writer, .limited64(self.uncompressed_size));
-                std.debug.print("total_written {}\n", .{n});
-                if (n != self.uncompressed_size) return error.FileDataMalformed;
+                const n = try reader.interface.stream(writer, .limited64(self.compressed_size));
                 return n;
             },
             .deflate => {
@@ -1037,20 +1034,76 @@ pub const FileData = struct {
         }
     }
 
-    // returns the raw compressed bytes (or memory-mapped slice if large)
-    pub fn read() ![]u8 {}
+    pub const FileExistsBehavior = enum {
+        fail, // Return error.PathAlreadyExists (default, matches std lib)
+        skip, // Skip extraction of existing files
+        overwrite, // Overwrite existing files
+    };
 
-    // decompresses the data according to header.compression_method
-    pub fn extract() !void {}
+    pub const ExtractOptions = struct {
+        file_exists_behavior: FileExistsBehavior = .fail,
+    };
+
+    pub fn extract(self: FileData, reader: *std.fs.File.Reader, dst: std.fs.Dir, options: ExtractOptions) !void {
+        var filename_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const filename = try self.filaneme(reader, filename_buf[0..self.header.filename_len]);
+
+        if (isBadFileName(filename)) return error.ZipBadFileName;
+
+        // All entries that end in '/' are directories
+        if (filename[filename.len - 1] == '/') {
+            if (self.uncompressed_size != 0) return error.ZipBadDirectorySize;
+            try dst.makePath(filename[0 .. filename.len - 1]);
+            return;
+        }
+
+        const out_file = blk: {
+            if (std.fs.path.dirname(filename)) |dirname| {
+                var parent_dir = try dst.makeOpenPath(dirname, .{});
+                defer parent_dir.close();
+                const basename = std.fs.path.basename(filename);
+                break :blk parent_dir.createFile(basename, .{ .exclusive = true }) catch |err| switch (err) {
+                    error.PathAlreadyExists => switch (options.file_exists_behavior) {
+                        .fail => return err,
+                        .overwrite => break :blk try parent_dir.createFile(basename, .{}),
+                        .skip => return,
+                    },
+                    else => |e| return e,
+                };
+            }
+            break :blk dst.createFile(filename, .{ .exclusive = true }) catch |err| switch (err) {
+                error.PathAlreadyExists => switch (options.file_exists_behavior) {
+                    .fail => return err,
+                    .overwrite => break :blk try dst.createFile(filename, .{}),
+                    .skip => return,
+                },
+                else => |e| return e,
+            };
+        };
+
+        defer out_file.close();
+
+        var writer_buf: [4096]u8 = undefined;
+        var writer = out_file.writer(&writer_buf);
+
+        const n = try self.stream(reader, &writer.interface);
+        if (n != self.uncompressed_size) {
+            return error.ZipMalformed;
+        }
+        try writer.interface.flush();
+    }
 
     // utility functions
+
     /// Compression method enum:
-    pub fn compression(self: *FileData) CompressionMethod {
+    pub fn compression(self: FileData) CompressionMethod {
         return self.header.compression_method;
     }
 
     /// Verify integrity post-extract; required for all ZIP tools.
-    pub fn crc32_checksum() u32 {}
+    pub fn crc32_checksum(self: FileData) u32 {
+        return self.header.crc32;
+    }
 
     /// Check general purpose bit 0; clients must handle auth headers.
     pub fn is_encypted(self: FileData) bool {
@@ -1066,6 +1119,20 @@ pub const FileData = struct {
         return fname[0..self.header.filename_len];
     }
 };
+
+// stolen from std.zip: https://github.com/ziglang/zig/blob/738d2be9d6b6ef3ff3559130c05159ef53336224/lib/std/zip.zig#L208C1-L220C2
+fn isBadFileName(filename: []const u8) bool {
+    if (filename.len == 0 or filename[0] == '/')
+        return true;
+
+    var it = std.mem.splitScalar(u8, filename, '/');
+    while (it.next()) |part| {
+        if (std.mem.eql(u8, part, ".."))
+            return true;
+    }
+
+    return false;
+}
 
 /// Iterator
 const Iterator = struct {
@@ -1319,54 +1386,6 @@ const Iterator = struct {
     }
 };
 
-test "eocd_structure" {
-    // const with_comment_zip = "sample/with_comment.zip";
-    // const my_epub = "sample/accessible_epub_3.epub";
-    // const as_zip64 = "sample/as_zip64.zip";
-    // const with_data_descriptor = "sample/with_data_descriptor.zip";
-    const with_flated = "sample/with_flated.zip";
-
-    var file = try std.fs.cwd().openFile(with_flated, .{ .mode = .read_only });
-    defer file.close();
-
-    var buf: [1024]u8 = undefined;
-    var freader = file.reader(&buf);
-
-    var iter = try Iterator.init(&freader);
-
-    var w_buf: [1024]u8 = undefined;
-    var fixed_writer: std.Io.Writer = .fixed(&w_buf);
-
-    while (try iter.next()) |fd| {
-        const n = fd.stream(&freader, &fixed_writer) catch |err| {
-            std.debug.print("error: {}\n", .{err});
-            continue;
-        };
-
-        std.debug.print("written_len {}: {s}\n", .{ n, w_buf[0..n] });
-        try fixed_writer.flush();
-
-        // var filename_buffer: [128]u8 = undefined;
-        // const fname = try fd.read(&freader, &filename_buffer);
-        // std.debug.print("filename: {s}\n", .{fname});
-    }
-
-    // var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
-    // defer aw.deinit();
-    //
-    // while (try iter.next()) |fd| {
-    //     _ = fd.stream(&freader, &aw.writer) catch |err| {
-    //         std.debug.print("error: {}\n", .{err});
-    //     };
-    //
-    //     std.debug.print("written:\n {s}\n", .{aw.written()});
-    //     try aw.writer.flush();
-    // }
-
-    // Print the contents (only up to written_len)
-
-}
-
 // var filename_buf: [std.fs.max_path_bytes]u8 = undefined;
 
 // r.interface.toss(header.filename_len);
@@ -1447,9 +1466,107 @@ test {
         const filename = filename_buf[0..entry.filename_len];
         try reader.seekTo(entry.header_zip_offset + @sizeOf(CentralDirectoryFileHeader));
         try reader.interface.readSliceAll(filename);
+        // entry.extract()
 
         // std.debug.print("filename: {s}\n", .{filename});
         // std.debug.print("size of CentralDirectoryFileHeader: {d}\n", .{@sizeOf(CentralDirectoryFileHeader)});
         count += 1;
     }
+}
+
+fn createDirAndFile(dir: std.fs.Dir, file_name: []const u8, mode: std.fs.File.Mode) !std.fs.File {
+    const fs_file = dir.createFile(file_name, .{ .exclusive = true, .mode = mode }) catch |err| {
+        if (err == error.FileNotFound) {
+            if (std.fs.path.dirname(file_name)) |dir_name| {
+                try dir.makePath(dir_name);
+                return try dir.createFile(file_name, .{ .exclusive = true, .mode = mode });
+            }
+        }
+        return err;
+    };
+    return fs_file;
+}
+
+test "create_dir_and_file" {
+    const out_path = "sample/out";
+    const cwd = std.fs.cwd();
+    const dir = try cwd.openDir(out_path, .{});
+    _ = try createDirAndFile(dir, "test/abc", std.fs.File.default_mode);
+}
+
+test "eocd_structure" {
+    // const with_comment_zip = "sample/with_comment.zip";
+    const my_epub = "sample/accessible_epub_3.epub";
+    // const as_zip64 = "sample/as_zip64.zip";
+    // const with_data_descriptor = "sample/with_data_descriptor.zip";
+    // const with_flated = "sample/with_flated.zip";
+
+    var file = try std.fs.cwd().openFile(my_epub, .{ .mode = .read_only });
+    defer file.close();
+
+    var buf: [4096]u8 = undefined;
+    var freader = file.reader(&buf);
+
+    const output_dir = "sample/out";
+    var dst = try std.fs.cwd().openDir(output_dir, .{});
+    try dst.makePath("accessible_epub_3");
+    dst = try dst.openDir("accessible_epub_3", .{});
+    std.debug.print("output dir: {}\n", .{try dst.stat()});
+    defer dst.close();
+
+    var iter = try Iterator.init(&freader);
+    var fname_buf: [std.fs.max_path_bytes]u8 = undefined;
+
+    while (try iter.next()) |fd| {
+        const fname = try fd.filaneme(&freader, &fname_buf);
+        std.debug.print("filename: {s}\n", .{fname});
+        try fd.extract(&freader, dst, .{ .file_exists_behavior = .overwrite });
+
+        // try fd.read(&freader, &w_buf);
+        // var n: usize = 0;
+        // while (true) {
+        //     n += fd.read(&freader, &w_buf) catch |err| switch (err) {
+        //         error.EndOfStream => break,
+        //         else => return err,
+        //     };
+        //     if (n == 0) {
+        //         break;
+        //     }
+        //     std.debug.print(": {d}\n", .{n});
+        // }
+        //
+        // if (n != fd.uncompressed_size) {
+        //     std.debug.print("incomplete ile data\n", .{});
+        // } else {
+        //     std.debug.print("done\n", .{});
+        // }
+    }
+
+    // var fixed_writer: std.Io.Writer = .fixed(&w_buf);
+    // const n = fd.stream(&freader, &fixed_writer) catch |err| {
+    //     std.debug.print("error: {}\n", .{err});
+    //     continue;
+    // };
+    //
+    // std.debug.print("written_len {}: {s}\n", .{ n, w_buf[0..n] });
+    // try fixed_writer.flush();
+
+    // var filename_buffer: [128]u8 = undefined;
+    // const fname = try fd.read(&freader, &filename_buffer);
+    // std.debug.print("filename: {s}\n", .{fname});
+
+    // var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    // defer aw.deinit();
+    //
+    // while (try iter.next()) |fd| {
+    //     _ = fd.stream(&freader, &aw.writer) catch |err| {
+    //         std.debug.print("error: {}\n", .{err});
+    //     };
+    //
+    //     std.debug.print("written:\n {s}\n", .{aw.written()});
+    //     try aw.writer.flush();
+    // }
+
+    // Print the contents (only up to written_len)
+
 }
