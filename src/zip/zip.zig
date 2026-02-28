@@ -814,14 +814,14 @@ const EndOfCentralDirectoryRecord = extern struct {
     pub fn print(self: EndOfCentralDirectoryRecord) void {
         std.debug.print("End-of-central-directory record\n", .{});
         std.debug.print("-------------------------------\n", .{});
-        std.debug.print("    signature                             0x{X}\n", .{self.signature});
-        std.debug.print("    disk_number                           {d}\n", .{self.disk_number});
-        std.debug.print("    central_directory_disk_number         {d}\n", .{self.central_directory_disk_number});
-        std.debug.print("    record_count_disk                     {d}\n", .{self.record_count_disk});
-        std.debug.print("    record_count_total                    {d}\n", .{self.record_count_total});
-        std.debug.print("    central_directory_size                {d}\n", .{self.central_directory_size});
-        std.debug.print("    central_directory_offset              {d}\n", .{self.central_directory_offset});
-        std.debug.print("    comment_len                           {d}\n\n", .{self.comment_len});
+        std.debug.print("signature                      \t0x{X}\n", .{self.signature});
+        std.debug.print("disk_number                    \t{d}\n", .{self.disk_number});
+        std.debug.print("central_directory_disk_number  \t{d}\n", .{self.central_directory_disk_number});
+        std.debug.print("record_count_disk              \t{d}\n", .{self.record_count_disk});
+        std.debug.print("record_count_total             \t{d}\n", .{self.record_count_total});
+        std.debug.print("central_directory_size         \t{d}\n", .{self.central_directory_size});
+        std.debug.print("central_directory_offset       \t{d}\n", .{self.central_directory_offset});
+        std.debug.print("comment_len                    \t{d}\n\n", .{self.comment_len});
     }
 };
 
@@ -1060,6 +1060,13 @@ pub const FileData = struct {
 
     header: LocalFileHeader,
 
+    fn logicalOffset(self: FileData) u64 {
+        return self.offset +
+            LocalFileHeader.size +
+            self.header.extra_len +
+            self.header.filename_len;
+    }
+
     // allows writing directly to a file or buffer without allocating the entire file in memory
     pub fn stream(self: FileData, reader: *std.fs.File.Reader, writer: *std.Io.Writer) !usize {
         // if flags.encrypted might need to read the encryption header
@@ -1067,11 +1074,7 @@ pub const FileData = struct {
 
         // Use offset to seek to the start of the file's data
         // immediately after LFH and optional encryption header.
-        const file_data_offset =
-            self.offset +
-            LocalFileHeader.size +
-            self.header.extra_len +
-            self.header.filename_len;
+        const data_offset = self.logicalOffset();
 
         try reader.seekTo(data_offset);
 
