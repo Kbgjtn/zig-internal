@@ -1155,36 +1155,41 @@ const Iterator = struct {
 
     pub fn init(reader: *std.fs.File.Reader) !Iterator {
         const file_size = try reader.getSize();
-        // std.debug.print("file_size: {}\n", .{file_size});
-        // Read EOCD record
+        // read eocd record
         const eocd = try EndOfCentralDirectoryRecord.read(reader);
         try eocd.record.validateStructure(file_size, eocd.offset);
 
-        var iterator: Iterator = .{ .reader = reader, .file_size = file_size };
+        var iterator: Iterator = .{
+            .reader = reader,
+            .file_size = file_size,
+        };
 
         const requires_zip64 = eocd.record.requiresZip64();
-        if (!requires_zip64) {
-            try eocd.record.validateSizeFields(file_size);
-            iterator.cd_size = eocd.record.central_directory_size;
-            iterator.cd_offset = eocd.record.central_directory_offset;
-            iterator.total_entries = eocd.record.record_count_total;
-        } else {
-            // the archive is zip64 structure path
-            // eocd zip64 allocator check
-            const locator = try EndRecord64Locator.read(reader, file_size, eocd.offset);
-            if (locator.central_directory_offset >= file_size) {
-                return error.Zip64SizeOverflow;
-            }
+        switch (requires_zip64) {
+            false => {
+                try eocd.record.validateSizeFields(file_size);
+                iterator.cd_size = eocd.record.central_directory_size;
+                iterator.cd_offset = eocd.record.central_directory_offset;
+                iterator.total_entries = eocd.record.record_count_total;
+            },
+            true => {
+                // the archive is zip64 structure path
+                // eocd zip64 allocator check
+                const locator = try EndRecord64Locator.read(reader, file_size, eocd.offset);
+                if (locator.central_directory_offset >= file_size) {
+                    return error.Zip64SizeOverflow;
+                }
 
-            const record64 = try EndOfCentralDirectoryRecord64.read(
-                reader,
-                file_size,
-                locator.central_directory_offset,
-            );
+                const record64 = try EndOfCentralDirectoryRecord64.read(
+                    reader,
+                    file_size,
+                    locator.central_directory_offset,
+                );
 
-            iterator.cd_offset = record64.central_directory_offset;
-            iterator.cd_size = record64.central_directory_size;
-            iterator.total_entries = record64.record_count_total;
+                iterator.cd_offset = record64.central_directory_offset;
+                iterator.cd_size = record64.central_directory_size;
+                iterator.total_entries = record64.record_count_total;
+            },
         }
 
         iterator.cd_start = iterator.cd_offset;
