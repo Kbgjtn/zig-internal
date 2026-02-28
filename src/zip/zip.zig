@@ -234,7 +234,7 @@ pub const CentralDirectoryFileHeader = extern struct {
     // extra field (variable size)
     // file comment (variable size)
 
-    const signature_mask: u32 = 0x02_01_4B_50;
+    const signature_marker: u32 = 0x02_01_4B_50;
     const size: u64 = 46;
 
     fn read(
@@ -243,7 +243,7 @@ pub const CentralDirectoryFileHeader = extern struct {
     ) !CentralDirectoryFileHeader {
         try reader.seekTo(offset);
         const cdfh = try reader.interface.takeStruct(CentralDirectoryFileHeader, .little);
-        if (cdfh.signature != signature_mask) return error.ZipBadSignature;
+        if (cdfh.signature != signature_marker) return error.ZipBadSignature;
         if (cdfh.disk_number_start != 0) return error.ZipUnsupportedMultiDisk;
         return cdfh;
     }
@@ -375,7 +375,7 @@ const EndRecord64Locator = extern struct {
     central_directory_offset: u64 align(1),
     total_disks: u32 align(1),
 
-    pub const signature_mask: u32 = 0x07064B50;
+    pub const signature_marker: u32 = 0x07_06_4B_50;
     pub const size: u32 = 20;
 
     pub fn read(reader: *std.fs.File.Reader, file_size: u64, offset: u64) !EndRecord64Locator {
@@ -386,7 +386,7 @@ const EndRecord64Locator = extern struct {
         const locator_offset: u64 = offset - eocd64_locator_size;
         try reader.seekTo(locator_offset);
         const locator = try reader.interface.takeStruct(EndRecord64Locator, .little);
-        if (locator.signature != signature_mask) {
+        if (locator.signature != signature_marker) {
             return error.Zip64InvalidSignature;
         }
 
@@ -787,7 +787,7 @@ pub const DataDescriptor = packed struct {
     compressed_size: u64,
     uncompressed_size: u64,
 
-    const signature_mask: u32 = 0x08_07_4b_50;
+    const signature_marker: u32 = 0x08_07_4b_50;
 
     pub fn read(
         r: *std.fs.File.Reader,
@@ -797,7 +797,7 @@ pub const DataDescriptor = packed struct {
         try r.seekTo(offset);
         const signature: u32 = try r.interface.takeInt(u32, .little);
         const crc32: u32 = switch (signature) {
-            signature_mask => try r.interface.takeInt(u32, .little),
+            signature_marker => try r.interface.takeInt(u32, .little),
             else => signature,
         };
 
@@ -1318,12 +1318,12 @@ const Iterator = struct {
 
 test "eocd_structure" {
     // const with_comment_zip = "sample/with_comment.zip";
-    const my_epub = "sample/accessible_epub_3.epub";
+    // const my_epub = "sample/accessible_epub_3.epub";
     // const as_zip64 = "sample/as_zip64.zip";
     // const with_data_descriptor = "sample/with_data_descriptor.zip";
-    // const with_flated = "sample/with_flated.zip";
+    const with_flated = "sample/with_flated.zip";
 
-    var file = try std.fs.cwd().openFile(my_epub, .{ .mode = .read_only });
+    var file = try std.fs.cwd().openFile(with_flated, .{ .mode = .read_only });
     defer file.close();
 
     var buf: [1024]u8 = undefined;
@@ -1331,47 +1331,100 @@ test "eocd_structure" {
 
     var iter = try Iterator.init(&freader);
 
-    // var w_buf: [4096]u8 = undefined;
-    //
-    // var aw: std.Io.Writer = .fixed(&w_buf);
-    // // defer aw.deinit();
-    //
-    // while (try iter.next()) |fd| {
-    //     const n = fd.stream(&freader, &aw) catch |err| {
-    //         std.debug.print("error: {}\n", .{err});
-    //         continue;
-    //     };
-    //
-    //     std.debug.print("written_len {}: {s}\n", .{ n, w_buf[0..n] });
-    //     try aw.flush();
-    //
-    //     // var filename_buffer: [128]u8 = undefined;
-    //     // const fname = try fd.read(&freader, &filename_buffer);
-    //     // std.debug.print("filename: {s}\n", .{fname});
-    // }
-
-    var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
-    defer aw.deinit();
+    var w_buf: [1024]u8 = undefined;
+    var fixed_writer: std.Io.Writer = .fixed(&w_buf);
 
     while (try iter.next()) |fd| {
-        _ = fd.stream(&freader, &aw.writer) catch |err| {
+        const n = fd.stream(&freader, &fixed_writer) catch |err| {
             std.debug.print("error: {}\n", .{err});
             continue;
         };
 
-        // std.debug.print("written_len {}\n", .{n});
-        try aw.writer.flush();
+        std.debug.print("written_len {}: {s}\n", .{ n, w_buf[0..n] });
+        try fixed_writer.flush();
 
         // var filename_buffer: [128]u8 = undefined;
         // const fname = try fd.read(&freader, &filename_buffer);
         // std.debug.print("filename: {s}\n", .{fname});
     }
 
+    // var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    // defer aw.deinit();
+    //
+    // while (try iter.next()) |fd| {
+    //     _ = fd.stream(&freader, &aw.writer) catch |err| {
+    //         std.debug.print("error: {}\n", .{err});
+    //     };
+    //
+    //     std.debug.print("written:\n {s}\n", .{aw.written()});
+    //     try aw.writer.flush();
+    // }
+
     // Print the contents (only up to written_len)
 
 }
 
 // var filename_buf: [std.fs.max_path_bytes]u8 = undefined;
+
+// r.interface.toss(header.filename_len);
+// std.debug.print("seek after reading lfh.filename {}\n", .{r.logicalPos()});
+//
+// var extra_buf: [max_u16]u8 = undefined;
+// const extra = extra_buf[0..header.extra_len];
+// try r.interface.readSliceAll(extra);
+//
+// std.debug.print("seek after reading lfh.filename {}\n", .{r.logicalPos()});
+// std.debug.print("extra ok: {}\n", .{extra.len == header.extra_len});
+//
+// var zip64_extended_extra: Extra.Zip64Extended = .{
+//     .compressed_size = header.compressed_size,
+//     .uncompressed_size = header.uncompressed_size,
+// };
+//
+// if (header.requires_zip64()) {
+//     var iter: Extra.Iterator = .{ .buf = extra };
+//     while (try iter.next()) |field| {
+//         const id = field.asHeaderID() orelse return error.BadHeaderID;
+//         if (id == HeaderId.zip64_extended_extra_field) {
+//             const ctx: Extra.Context = .{
+//                 .zip64_extended_extra_field = .{
+//                     .uncompressed_size = header.uncompressed_size,
+//                     .compressed_size = header.compressed_size,
+//                     .disk_number_start = null,
+//                     .local_file_header_relative_offset = null,
+//                 },
+//             };
+//
+//             const out = try field.parse(ctx);
+//             zip64_extended_extra = out.zip64_extended_extra_field;
+//         }
+//     }
+// }
+//
+// std.debug.print("extra metadata [lfh]: {}\n", .{zip64_extended_extra});
+// header.print();
+// std.debug.print("seek after reading lfh.extra {}\n", .{r.logicalPos()});
+//
+// if (header.compression_method == CompressionMethod.deflate) {
+//     var flate_buf: [std.compress.flate.max_window_len]u8 = undefined;
+//     var decompress: std.compress.flate.Decompress = .init(&r.interface, .raw, &flate_buf);
+//     std.debug.print("data decompressed:\n", .{});
+//
+//     while (true) {
+//         const byte = decompress.reader.takeByte() catch |err| switch (err) {
+//             error.EndOfStream => break,
+//             else => return err,
+//         };
+//
+//         std.debug.print("{c}", .{byte});
+//     }
+// } else if (header.compression_method == CompressionMethod.stored) {
+//     var data_buf: [4096]u8 = undefined; // output buffer
+//     // try r.seekTo(zip64_extended_extra.compressed_size);
+//     const data = data_buf[0..zip64_extended_extra.compressed_size];
+//     try r.interface.readSliceAll(data);
+//     std.debug.print("data (0): {s}\n", .{data});
+// }
 
 test {
     const myepub = "sample/accessible_epub_3.epub";
