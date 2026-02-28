@@ -83,8 +83,8 @@ pub const CompressionMethod = enum(u16) {
     _,
 };
 
-// File Headers
-
+/// Local File Headers
+///
 /// The Local File Header of each entry represents information
 /// about the file such as comment, file size and file name.
 /// The extra data fields (optional) can accommodate information
@@ -113,84 +113,21 @@ pub const LocalFileHeader = extern struct {
     // File name (variable size)
     // Extra field (variable size)
 
-    const signature_marker: u32 = 0x04034b50;
+    const signature_marker: u32 = 0x04_03_4B_50;
     const size: u64 = 30;
 
-    // TODO should this returned the parsed extra if any?
-    // (dapa) NOPE
     pub fn read(r: *std.fs.File.Reader, offset: u64) !LocalFileHeader {
         try r.seekTo(offset);
+
         const header = try r.interface.takeStruct(LocalFileHeader, .little);
         if (header.signature != signature_marker) return error.ZipBadSignature;
-        // if (r.logicalPos() != size) return error.BadFileHeader;
+        if (r.interface.seek != size) return error.BadFileHeader;
         if (header.flags.encrypted) return error.ZipUnsupportedEncryption;
-
-        // r.interface.toss(header.filename_len);
-        // std.debug.print("seek after reading lfh.filename {}\n", .{r.logicalPos()});
-        //
-        // var extra_buf: [max_u16]u8 = undefined;
-        // const extra = extra_buf[0..header.extra_len];
-        // try r.interface.readSliceAll(extra);
-        //
-        // std.debug.print("seek after reading lfh.filename {}\n", .{r.logicalPos()});
-        // std.debug.print("extra ok: {}\n", .{extra.len == header.extra_len});
-        //
-        // var zip64_extended_extra: Extra.Zip64Extended = .{
-        //     .compressed_size = header.compressed_size,
-        //     .uncompressed_size = header.uncompressed_size,
-        // };
-        //
-        // if (header.requires_zip64()) {
-        //     var iter: Extra.Iterator = .{ .buf = extra };
-        //     while (try iter.next()) |field| {
-        //         const id = field.asHeaderID() orelse return error.BadHeaderID;
-        //         if (id == HeaderId.zip64_extended_extra_field) {
-        //             const ctx: Extra.Context = .{
-        //                 .zip64_extended_extra_field = .{
-        //                     .uncompressed_size = header.uncompressed_size,
-        //                     .compressed_size = header.compressed_size,
-        //                     .disk_number_start = null,
-        //                     .local_file_header_relative_offset = null,
-        //                 },
-        //             };
-        //
-        //             const out = try field.parse(ctx);
-        //             zip64_extended_extra = out.zip64_extended_extra_field;
-        //         }
-        //     }
-        // }
-        //
-        // std.debug.print("extra metadata [lfh]: {}\n", .{zip64_extended_extra});
-        // header.print();
-        // std.debug.print("seek after reading lfh.extra {}\n", .{r.logicalPos()});
-        //
-        // if (header.compression_method == CompressionMethod.deflate) {
-        //     var flate_buf: [std.compress.flate.max_window_len]u8 = undefined;
-        //     var decompress: std.compress.flate.Decompress = .init(&r.interface, .raw, &flate_buf);
-        //     std.debug.print("data decompressed:\n", .{});
-        //
-        //     while (true) {
-        //         const byte = decompress.reader.takeByte() catch |err| switch (err) {
-        //             error.EndOfStream => break,
-        //             else => return err,
-        //         };
-        //
-        //         std.debug.print("{c}", .{byte});
-        //     }
-        // } else if (header.compression_method == CompressionMethod.stored) {
-        //     var data_buf: [4096]u8 = undefined; // output buffer
-        //     // try r.seekTo(zip64_extended_extra.compressed_size);
-        //     const data = data_buf[0..zip64_extended_extra.compressed_size];
-        //     try r.interface.readSliceAll(data);
-        //     std.debug.print("data (0): {s}\n", .{data});
-        // }
-
         return header;
     }
 
     pub fn requires_zip64(s: LocalFileHeader) bool {
-        return s.compressed_size == 0xFFFFFFFF or
-            s.uncompressed_size == 0xFFFFFFFF;
+        return s.compressed_size == 0xFFFFFFFF or s.uncompressed_size == 0xFFFFFFFF;
     }
 
     pub fn print(self: LocalFileHeader) void {
