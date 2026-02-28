@@ -1063,9 +1063,7 @@ pub const FileData = struct {
     // allows writing directly to a file or buffer without allocating the entire file in memory
     pub fn stream(self: FileData, reader: *std.fs.File.Reader, writer: *std.Io.Writer) !usize {
         // if flags.encrypted might need to read the encryption header
-        if (self.header.flags.encrypted) {
-            return error.NotImplemented;
-        }
+        if (self.header.flags.encrypted) return error.NotImplemented;
 
         // Use offset to seek to the start of the file's data
         // immediately after LFH and optional encryption header.
@@ -1075,48 +1073,43 @@ pub const FileData = struct {
             self.header.extra_len +
             self.header.filename_len;
 
-        try reader.seekTo(file_data_offset);
+        try reader.seekTo(data_offset);
 
-        if (self.header.compression_method == CompressionMethod.stored) {
-            var total_written: usize = 0;
-            while (true) {
-                const n = reader.interface.stream(writer, .unlimited) catch |err| switch (err) {
-                    error.EndOfStream => break,
+        std.debug.print("seek {}\n", .{reader.interface.seek});
+        std.debug.print("compression_method {}\n", .{self.header.compression_method});
+        std.debug.print("compress_size {}\n", .{self.compressed_size});
+        std.debug.print("uncompress_size {}\n", .{self.uncompressed_size});
+
+        switch (self.header.compression_method) {
+            .stored => {
+                const n = try reader.interface.stream(writer, .limited64(self.uncompressed_size));
+                std.debug.print("total_written {}\n", .{n});
+                if (n != self.uncompressed_size) return error.FileDataMalformed;
+                return n;
+            },
+            .deflate => {
+                const history_len = 32768;
+                const max_window_len = history_len * 2;
+                var decompress_buf: [max_window_len]u8 = undefined;
+
+                // Incremental read/decompress to a client-provided writer without full buffering.
+                var decompress: std.compress.flate.Decompress = .init(
+                    &reader.interface,
+                    .raw,
+                    &decompress_buf,
+                );
+
+                decompress.reader.streamExact64(writer, self.uncompressed_size) catch |err| switch (err) {
+                    error.EndOfStream => {
+                        std.debug.print("error.EndOfStream: {}", .{err == error.EndOfStream});
+                    },
                     else => return err,
                 };
 
-                total_written += n;
-            }
-
-            return total_written;
+                return self.uncompressed_size;
+            },
+            else => return error.ZipUnsupportedCompressionMethod,
         }
-
-        const history_len = 32768;
-        const max_window_len = history_len * 2;
-        var decompress_buf: [max_window_len]u8 = undefined;
-        // Incremental read/decompress to a client-provided writer without full buffering.
-        var decompressor: std.compress.flate.Decompress = .init(
-            &reader.interface,
-            .raw,
-            &decompress_buf,
-        );
-
-        var total_written: usize = 0;
-
-        while (true) {
-            const n = decompressor.reader.stream(writer, .unlimited) catch |err| switch (err) {
-                error.EndOfStream => break,
-                else => return err,
-            };
-
-            total_written += n;
-        }
-
-        if (total_written != self.uncompressed_size) {
-            return error.FileDataMalformed;
-        }
-
-        return total_written;
     }
 
     // returns the raw compressed bytes (or memory-mapped slice if large)
