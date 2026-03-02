@@ -48,3 +48,23 @@ stream rather having events "pushed" to them.
 References:
 - https://ithy.com/article/xml-parsing-tips-29mppwre
 - https://www.hurix.com/blogs/understanding-the-importance-of-parsers-in-xml/#thestax6
+
+### Character Encoding
+Before a parser can interpret structure of XML Document, it must understand
+the characters. Character encoding is the process of assigning a unique 
+numerical value (code point) to each character in a given set. This refers
+to the method used to represent characters as a sequence of bytes for 
+transmission or storage.
+
+While schemes like ISO-8859-1 and ASCII exists, UTF-8 (8-bit format) has 
+become the dominant standard for XML parsers.
+
+#### UTF-8
+Developed in the 1990s, UTF-8 is backward compatible with ASCII. This means 
+any text written in ASCII is automatically valid UTF-8. However, unlike 
+ASCII, UTF-8 can represent over 143,000 characters.
+
+UTF-8 is a variable-length encoding scheme. It uses one to four bytes to 
+represent each character in the Unicode character set. This design allows
+it to represent virtualyy every character from every writing system, from 
+ascii to complex multi-bytes scripts and emojis.
