@@ -1474,26 +1474,6 @@ test {
     }
 }
 
-fn createDirAndFile(dir: std.fs.Dir, file_name: []const u8, mode: std.fs.File.Mode) !std.fs.File {
-    const fs_file = dir.createFile(file_name, .{ .exclusive = true, .mode = mode }) catch |err| {
-        if (err == error.FileNotFound) {
-            if (std.fs.path.dirname(file_name)) |dir_name| {
-                try dir.makePath(dir_name);
-                return try dir.createFile(file_name, .{ .exclusive = true, .mode = mode });
-            }
-        }
-        return err;
-    };
-    return fs_file;
-}
-
-test "create_dir_and_file" {
-    const out_path = "sample/out";
-    const cwd = std.fs.cwd();
-    const dir = try cwd.openDir(out_path, .{});
-    _ = try createDirAndFile(dir, "test/abc", std.fs.File.default_mode);
-}
-
 test "eocd_structure" {
     // const with_comment_zip = "sample/with_comment.zip";
     const my_epub = "sample/accessible_epub_3.epub";
@@ -1515,11 +1495,11 @@ test "eocd_structure" {
     defer dst.close();
 
     var iter = try Iterator.init(&freader);
-    var fname_buf: [std.fs.max_path_bytes]u8 = undefined;
+    // var fname_buf: [std.fs.max_path_bytes]u8 = undefined;
 
     while (try iter.next()) |fd| {
-        const fname = try fd.filaneme(&freader, &fname_buf);
-        std.debug.print("filename: {s}\n", .{fname});
+        // const fname = try fd.filaneme(&freader, &fname_buf);
+        // std.debug.print("filename: {s}\n", .{fname});
         try fd.extract(&freader, dst, .{ .file_exists_behavior = .overwrite });
 
         // try fd.read(&freader, &w_buf);
