@@ -94,7 +94,99 @@ pub const Parser = struct {
     }
 
     pub fn deinit(self: *Parser) void {
-        self.element_stack.deinit();
+        self.element_stack.deinit(self.allocator);
+    }
+
+    pub fn next(self: *Parser) !?Event {
+        switch (self.state) {
+            .Start => {
+                self.state = .Content;
+                return Event.StartDocument;
+            },
+            .Epilog => {
+                self.skipS();
+                if (self.peekByte() == null) {
+                    self.state = .End;
+                    return Event.EndDocument;
+                }
+            },
+            .Content => {
+                self.skipS();
+                const byte = self.peekByte() orelse {
+                    if (self.element_stack.items.len != 0) return XMLError.UnexpectedEOF;
+                    self.state = .End;
+                    return Event.EndDocument;
+                };
+                if (byte == '<') {
+                    return try self.parseMarkup();
+                } else {
+                    return try self.parseText();
+                }
+            },
+            .End => return null,
+        }
+
+        return XMLError.UnexpectedToken;
+    }
+
+    fn parseMarkup(self: *Parser) !Event {
+        _ = self.takeByte(); // consume '<'
+        const byte = self.peekByte() orelse return XMLError.UnexpectedEOF;
+        switch (byte) {
+            '/' => return try self.parseEndTag(),
+            else => return try self.parseStartTag(),
+        }
+    }
+
+    fn parseStartTag(self: *Parser) !Event {
+        const name = try self.parseName();
+        try self.element_stack.append(self.allocator, name);
+        self.skipS();
+        const byte = self.takeByte() orelse return XMLError.UnexpectedToken;
+        if (byte != '>') return XMLError.UnexpectedToken;
+        return .{ .STag = name };
+    }
+
+    fn parseEndTag(self: *Parser) !Event {
+        _ = self.takeByte(); // consume '/'
+        const name = try self.parseName();
+        const top = self.element_stack.pop() orelse return XMLError.MismatchedTag;
+
+        if (!std.mem.eql(u8, top, name)) {
+            return XMLError.MismatchedTag;
+        }
+
+        const byte = self.takeByte() orelse return XMLError.UnexpectedEOF;
+        if (byte != '>') return XMLError.UnexpectedToken;
+
+        if (self.element_stack.items.len == 0) {
+            self.state = .Epilog;
+        }
+        return .{ .ETag = name };
+    }
+
+    fn parseText(self: *Parser) !Event {
+        const start = self.pos;
+        while (self.peekByte()) |c| {
+            if (c == '<') break;
+            _ = self.takeByte();
+        }
+
+        const slice = self.input[start..self.pos];
+        return .{ .Characters = slice };
+    }
+
+    fn parseName(self: *Parser) ![]const u8 {
+        const start = self.pos;
+        while (self.peekByte()) |c| {
+            if (!std.ascii.isAlphanumeric(c)) break;
+            _ = self.takeByte();
+        }
+
+        if (self.pos == start) {
+            return XMLError.UnexpectedToken;
+        }
+        return self.input[start..self.pos];
     }
 
     fn peekByte(self: *Parser) ?u8 {
