@@ -96,7 +96,29 @@ pub const Parser = struct {
     pub fn deinit(self: *Parser) void {
         self.element_stack.deinit();
     }
-    fn next(self: *Parser) !?Event {
+
+    fn peekByte(self: *Parser) ?u8 {
+        if (self.pos >= self.input.len) return null;
+        return self.input[self.pos];
+    }
+
+    fn takeByte(self: *Parser) ?u8 {
+        if (self.pos >= self.input.len) return null;
+        const byte = self.input[self.pos];
+        self.pos += 1;
+        return byte;
+    }
+
+    /// **White Space**
+    /// S (white space) consists of one or more space (#x20) characters, carriage returns, line feeds, or tabs.
+    fn skipS(self: *Parser) ?u8 {
+        while (self.peekByte()) |c| {
+            if (!std.ascii.isWhitespace(c)) break;
+            _ = self.takeByte();
+        }
+    }
+
+    pub fn next(self: *Parser) !?Event {
         _ = self;
         return;
     }
