@@ -111,15 +111,10 @@ pub const Parser = struct {
 
     /// **White Space**
     /// S (white space) consists of one or more space (#x20) characters, carriage returns, line feeds, or tabs.
-    fn skipS(self: *Parser) ?u8 {
+    fn skipS(self: *Parser) void {
         while (self.peekByte()) |c| {
             if (!std.ascii.isWhitespace(c)) break;
             _ = self.takeByte();
         }
-    }
-
-    pub fn next(self: *Parser) !?Event {
-        _ = self;
-        return;
     }
 };
