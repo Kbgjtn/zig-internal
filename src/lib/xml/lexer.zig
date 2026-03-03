@@ -84,12 +84,12 @@ pub const Parser = struct {
 
     pub fn init(
         allocator: std.mem.Allocator,
-        v: []const u8,
-    ) Parser {
+        input: []const u8,
+    ) !Parser {
         return .{
-            .input = v,
+            .input = input,
             .allocator = allocator,
-            .element_stack = std.ArrayList([]const u8).initCapacity(allocator, v.len),
+            .element_stack = try std.ArrayList([]const u8).initCapacity(allocator, input.len),
         };
     }
 
