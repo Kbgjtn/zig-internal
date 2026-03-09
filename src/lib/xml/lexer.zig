@@ -98,30 +98,85 @@ pub const Parser = struct {
     }
 
     pub fn next(self: *Parser) !?Event {
+        self.skipS();
         switch (self.state) {
-            .Start => {
-                self.state = .Content;
-                return Event.StartDocument;
-            },
             .Epilog => {
-                self.skipS();
-                if (self.peekByte() == null) {
-                    self.state = .End;
-                    return Event.EndDocument;
-                }
-            },
-            .Content => {
-                self.skipS();
-                const byte = self.peekByte() orelse {
-                    if (self.element_stack.items.len != 0) return XMLError.UnexpectedEOF;
+                _ = self.reader.peekByte() catch {
                     self.state = .End;
                     return Event.EndDocument;
                 };
+                return try self.parseMisc();
+            },
+            .Start => {
+                // Check Prolog
+                // XMLDecl? Misc* (doctypedecl Misc*)?
+                const xml_decl_start = try self.reader.peek(5);
+                if (!std.mem.eql(u8, xml_decl_start, XMLDeclStart)) {
+                    self.state = .Content;
+                } else {
+                    self.state = .Prolog;
+                }
+
+                return Event.StartDocument;
+            },
+            .Prolog => {
+                // Prolog
+                // [22] prolog       ::=    XMLDecl? Misc* (doctypedecl Misc*)?
+                // [23] XMLDecl      ::=    '<?xml' VersionInfo EncodingDecl? SDDecl? S? '?>'
+                // [24] VersionInfo  ::=    S 'version' Eq ("'" VersionNum "'" | '"' VersionNum '"')
+                // [25] Eq           ::=    S? '=' S?
+                // [26] VersionNum   ::=    '1.' [0-9]+
+                // [27] Misc         ::=    Comment | PI | S
+
+                const signature = try self.reader.take(5); // consume xml_decl signature
+                var xml_decl: XMLDecl = .{
+                    .signature = signature,
+                    .encoding = "UTF-8",
+                    .version = "1.0",
+                    .sdd = "no",
+                };
+
+                while (true) {
+                    self.skipS();
+
+                    const byte = try self.reader.peekByte();
+                    if (byte == '?') {
+                        _ = try self.reader.takeByte(); // consume '?'
+                        _ = try self.reader.takeByte(); // consume '>'
+                        break;
+                    }
+
+                    const attr = try self.parseAttribute();
+                    if (std.mem.eql(u8, attr.name, "version")) {
+                        xml_decl.version = attr.value;
+                    } else if (std.mem.eql(u8, attr.name, "encoding")) {
+                        xml_decl.encoding = attr.value;
+                    } else if (std.mem.eql(u8, attr.name, "standalone")) {
+                        xml_decl.sdd = attr.value;
+                    }
+                }
+
+                self.state = .Content;
+                return .{ .XMLDecl = xml_decl };
+            },
+            .Content => {
+                self.skipS();
+                const byte = self.reader.peekByte() catch {
+                    if (self.element_stack.items.len != 0) return XMLError.UnexpectedEOF;
+
+                    // Stack is empty, so we're at end of root element
+                    self.state = .Epilog;
+                    return Event.EndDocument;
+                };
+
+                // std.debug.print("content.state {any}\n", .{self.state});
+                // std.debug.print("content byte {c}\n", .{byte});
+
                 if (byte == '<') {
                     return try self.parseMarkup();
-                } else {
-                    return try self.parseText();
                 }
+
+                return try self.parseText();
             },
             .End => return null,
         }
