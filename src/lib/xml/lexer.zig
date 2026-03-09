@@ -73,6 +73,10 @@ const state = enum {
     End,
 };
 
+const Attribute = struct {
+    name: []const u8,
+    value: []const u8,
+};
 const XMLDecl = struct {
     signature: []const u8,
     // version info
