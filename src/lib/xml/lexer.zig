@@ -46,7 +46,7 @@ pub const XMLError = error{
 };
 
 pub const Event = union(enum) {
-    None,
+    XMLDecl: XMLDecl,
     StartDocument,
     EndDocument,
     /// Start of Element
