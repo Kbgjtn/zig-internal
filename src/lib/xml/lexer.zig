@@ -158,6 +158,39 @@ pub const Parser = struct {
             },
         }
     }
+
+    fn parseProcessingInstruction(self: *Parser) !Event {
+        const target_start = self.reader.seek;
+
+        while (true) {
+            const c = self.reader.takeByte() catch return XMLError.UnexpectedEOF;
+            if (!std.ascii.isAlphanumeric(c) and c != '_' and c != '-' and c != ':') break;
+            _ = try self.reader.takeByte();
+        }
+
+        const target = self.input[target_start..self.reader.seek];
+        if (target.len == 0) return XMLError.UnexpectedToken;
+
+        self.skipS();
+
+        // Parse data until '?>'
+        const data_start = self.reader.seek;
+        while (true) {
+            const c = self.reader.takeByte() catch return error.UnexpectedEOF;
+            if (c == '?') {
+                const next_byte = self.reader.takeByte() catch return error.UnexpectedEOF;
+                if (next_byte == '>') break;
+            }
+        }
+
+        const data = self.input[data_start .. self.reader.seek - 2]; // Exclude '?>'
+        return .{
+            .ProcessingInstruction = .{
+                .target = target,
+                .data = data,
+            },
+        };
+    }
     fn parseMarkup(self: *Parser) !Event {
         _ = self.takeByte(); // consume '<'
         const byte = self.peekByte() orelse return XMLError.UnexpectedEOF;
