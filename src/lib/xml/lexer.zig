@@ -191,6 +191,34 @@ pub const Parser = struct {
             },
         };
     }
+
+    fn parseComment(self: *Parser) !Event {
+        // expect '--'
+        const dash1 = self.reader.takeByte() catch return error.UnexpectedToken;
+        const dash2 = self.reader.takeByte() catch return error.UnexpectedToken;
+
+        if (dash1 != '-' or dash2 != '-') return error.UnexpectedToken;
+        const start = self.reader.seek;
+
+        while (true) {
+            const c = self.reader.takeByte() catch return error.UnexpectedEOF;
+            if (c == '-') {
+
+                // Check for '-->'
+                const next1 = self.reader.peekByte() catch return XMLError.UnexpectedEOF;
+                if (next1 == '-') {
+                    _ = try self.reader.takeByte(); // consume second '-'
+                    const next2 = self.reader.takeByte() catch return XMLError.UnexpectedEOF;
+                    if (next2 != '>') return error.UnexpectedToken;
+                    break;
+                }
+            }
+        }
+
+        const comment_text = self.input[start .. self.reader.seek - 3]; // Exclude '-->'
+        return .{ .Comment = comment_text };
+    }
+
     fn parseMarkup(self: *Parser) !Event {
         _ = self.takeByte(); // consume '<'
         const byte = self.peekByte() orelse return XMLError.UnexpectedEOF;
