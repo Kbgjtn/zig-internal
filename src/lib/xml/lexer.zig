@@ -46,6 +46,7 @@ pub const XMLError = error{
 };
 
 pub const Event = union(enum) {
+    None,
     StartDocument,
     EndDocument,
     /// Start of Element
@@ -56,6 +57,10 @@ pub const Event = union(enum) {
     Comment: []const u8,
     // Processing Instruction(s)
     PI: []const u8,
+    ProcessingInstruction: struct {
+        target: []const u8,
+        data: []const u8,
+    },
 };
 
 // An element:
