@@ -75,26 +75,32 @@ const state = enum {
 
 /// Stage 1: minimal scratch engine structure XML Document parser
 pub const Parser = struct {
+    const XMLDeclStart = "<?xml";
+
     allocator: std.mem.Allocator,
     input: []const u8,
-
+    reader: std.Io.Reader,
     state: state = .Start,
-    pos: usize = 0,
     element_stack: std.ArrayList([]const u8),
+    attribute_list: std.ArrayList(Attribute),
 
-    pub fn init(
-        allocator: std.mem.Allocator,
-        input: []const u8,
-    ) !Parser {
+    pub fn init(allocator: std.mem.Allocator, input: []const u8) !Parser {
+        for (0..input.len) |i| {
+            std.debug.print("i-{d}:{c}\n", .{ i, input[i] });
+        }
+
         return .{
             .input = input,
+            .reader = std.Io.Reader.fixed(input),
             .allocator = allocator,
             .element_stack = try std.ArrayList([]const u8).initCapacity(allocator, input.len),
+            .attribute_list = try std.ArrayList(Attribute).initCapacity(allocator, 0),
         };
     }
 
     pub fn deinit(self: *Parser) void {
         self.element_stack.deinit(self.allocator);
+        self.attribute_list.deinit(self.allocator);
     }
 
     pub fn next(self: *Parser) !?Event {
