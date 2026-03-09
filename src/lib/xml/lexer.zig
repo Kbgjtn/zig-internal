@@ -220,10 +220,11 @@ pub const Parser = struct {
     }
 
     fn parseMarkup(self: *Parser) !Event {
-        _ = self.takeByte(); // consume '<'
-        const byte = self.peekByte() orelse return XMLError.UnexpectedEOF;
+        _ = try self.reader.takeByte(); // consume '<'
+        const byte = self.reader.peekByte() catch return XMLError.UnexpectedEOF;
         switch (byte) {
             '/' => return try self.parseEndTag(),
+            '!' => return try self.parseMisc(),
             else => return try self.parseStartTag(),
         }
     }
