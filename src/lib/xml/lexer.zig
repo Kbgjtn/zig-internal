@@ -260,6 +260,44 @@ pub const Parser = struct {
             self.skipS();
         }
     }
+
+    fn parseAttribute(self: *Parser) !Attribute {
+        const name_start = self.reader.seek;
+        std.debug.print("name_start: {}\n", .{name_start});
+        while (self.reader.peekByte() catch null) |c| {
+            if (!std.ascii.isAlphanumeric(c) and c != '-' and c != '_' and c != ':') break;
+            _ = try self.reader.takeByte();
+        }
+
+        const name = self.input[name_start..self.reader.seek];
+        if (name.len == 0) return XMLError.UnexpectedToken;
+        std.debug.print("attribute.name: {s}\n", .{name});
+
+        self.skipS();
+
+        // Expect '='
+        const eq = try self.reader.takeByte();
+        if (eq != '=') return XMLError.UnexpectedToken;
+
+        self.skipS();
+
+        // Parse attribute value (quoted)
+
+        const quote = self.reader.takeByte() catch return XMLError.UnexpectedToken;
+        if (quote != '"' and quote != '\'') return XMLError.UnexpectedToken;
+
+        const value_start = self.reader.seek;
+        while (true) {
+            const c = self.reader.takeByte() catch return XMLError.UnexpectedEOF;
+            if (c == quote) break;
+        }
+
+        const value = self.input[value_start .. self.reader.seek - 1];
+        std.debug.print("attribute.value: {s}\n", .{value});
+        return .{
+            .name = name,
+            .value = value,
+        };
     }
 
     fn parseEndTag(self: *Parser) !Event {
