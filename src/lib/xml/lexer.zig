@@ -232,10 +232,34 @@ pub const Parser = struct {
     fn parseStartTag(self: *Parser) !Event {
         const name = try self.parseName();
         try self.element_stack.append(self.allocator, name);
+
+        self.attribute_list.clearAndFree(self.allocator);
         self.skipS();
-        const byte = self.takeByte() orelse return XMLError.UnexpectedToken;
-        if (byte != '>') return XMLError.UnexpectedToken;
-        return .{ .STag = name };
+
+        // Parse attributes
+        while (true) {
+            const byte = self.reader.peekByte() catch return XMLError.UnexpectedEOF;
+            if (byte == '>') {
+                _ = try self.reader.takeByte(); // consume '>'
+                return .{ .STag = name };
+            }
+
+            if (byte == '/') {
+                // self-closing tag
+                _ = try self.reader.takeByte(); // consume '/'
+                const closing = self.reader.takeByte() catch return XMLError.UnexpectedEOF;
+                if (closing != '>') return XMLError.UnexpectedToken;
+
+                // pop the element since it's self-closing
+                _ = self.element_stack.pop();
+                return .{ .STag = name };
+            }
+
+            const attr = try self.parseAttribute();
+            try self.attribute_list.append(self.allocator, attr);
+            self.skipS();
+        }
+    }
     }
 
     fn parseEndTag(self: *Parser) !Event {
