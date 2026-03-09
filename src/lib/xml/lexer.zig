@@ -129,6 +129,35 @@ pub const Parser = struct {
         return XMLError.UnexpectedToken;
     }
 
+    fn parseMisc(self: *Parser) !Event {
+        const next_byte = self.reader.peekByte() catch return error.UnexpectedEOF;
+        switch (next_byte) {
+            '!' => {
+                // Could be comment, CDATA or doctype
+                _ = try self.reader.takeByte(); // consume '!'
+                const byte = try self.reader.peekByte();
+                if (byte == '-') {
+                    return try self.parseComment();
+                }
+
+                if (byte == '[') {
+                    const cd_start = try self.reader.take(6);
+                    if (std.mem.eql(u8, cd_start, "[CDATA")) {
+                        return try self.parseProcessingInstruction();
+                    }
+                }
+
+                return error.UnexpectedToken;
+            },
+            '?' => {
+                _ = try self.reader.takeByte(); // consume '?'
+                return try self.parseProcessingInstruction();
+            },
+            else => {
+                return XMLError.UnexpectedToken;
+            },
+        }
+    }
     fn parseMarkup(self: *Parser) !Event {
         _ = self.takeByte(); // consume '<'
         const byte = self.peekByte() orelse return XMLError.UnexpectedEOF;
