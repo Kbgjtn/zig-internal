@@ -73,6 +73,24 @@ const state = enum {
     End,
 };
 
+const XMLDecl = struct {
+    signature: []const u8,
+    // version info
+    version: []const u8,
+    encoding: []const u8,
+    // standalone document declaration
+    sdd: []const u8,
+
+    pub fn print(self: XMLDecl) void {
+        std.debug.print("XML Declaration\n", .{});
+        std.debug.print("-----------------------------\n", .{});
+        std.debug.print("   signature \t{s}\n", .{self.signature});
+        std.debug.print("   version \t{s}\n", .{self.version});
+        std.debug.print("   encoding \t{s}\n", .{self.encoding});
+        std.debug.print("   standalone \t{s}\n", .{self.sdd});
+    }
+};
+
 /// Stage 1: minimal scratch engine structure XML Document parser
 pub const Parser = struct {
     const XMLDeclStart = "<?xml";
