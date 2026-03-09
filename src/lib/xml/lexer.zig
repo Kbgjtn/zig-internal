@@ -17,6 +17,7 @@ const std = @import("std");
 // and a value.
 
 pub const Token = enum {
+    xml_decl,
     /// <
     lt,
     /// >
@@ -35,6 +36,7 @@ pub const Token = enum {
     pi,
     doctype,
     entity_ref,
+    /// End Of File
     eof,
 };
 
