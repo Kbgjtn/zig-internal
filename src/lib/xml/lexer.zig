@@ -301,7 +301,9 @@ pub const Parser = struct {
     }
 
     fn parseEndTag(self: *Parser) !Event {
-        _ = self.takeByte(); // consume '/'
+        _ = try self.reader.takeByte(); // consume '/' or '?'
+        // std.debug.print("prefix delim {c}\n", .{prefix_delim});
+
         const name = try self.parseName();
         const top = self.element_stack.pop() orelse return XMLError.MismatchedTag;
 
@@ -309,7 +311,7 @@ pub const Parser = struct {
             return XMLError.MismatchedTag;
         }
 
-        const byte = self.takeByte() orelse return XMLError.UnexpectedEOF;
+        const byte = self.reader.takeByte() catch return XMLError.UnexpectedEOF;
         if (byte != '>') return XMLError.UnexpectedToken;
 
         if (self.element_stack.items.len == 0) {
@@ -319,47 +321,39 @@ pub const Parser = struct {
     }
 
     fn parseText(self: *Parser) !Event {
-        const start = self.pos;
-        while (self.peekByte()) |c| {
+        const start = self.reader.seek;
+        while (self.reader.peekByte() catch null) |c| {
             if (c == '<') break;
-            _ = self.takeByte();
+            _ = try self.reader.takeByte();
         }
 
-        const slice = self.input[start..self.pos];
+        const slice = self.input[start..self.reader.seek];
         return .{ .Characters = slice };
     }
 
     fn parseName(self: *Parser) ![]const u8 {
-        const start = self.pos;
-        while (self.peekByte()) |c| {
-            if (!std.ascii.isAlphanumeric(c)) break;
-            _ = self.takeByte();
+        const start = self.reader.seek;
+        while (self.reader.peekByte() catch null) |c| {
+            if (!std.ascii.isAlphanumeric(c) and c != '-' and c != '_') break;
+            _ = try self.reader.takeByte();
         }
 
-        if (self.pos == start) {
+        // std.debug.print("reader.seek {}\n", .{self.reader.seek});
+        // std.debug.print("self.pos {}\n", .{self.pos});
+
+        if (self.reader.seek == start) {
             return XMLError.UnexpectedToken;
         }
-        return self.input[start..self.pos];
-    }
-
-    fn peekByte(self: *Parser) ?u8 {
-        if (self.pos >= self.input.len) return null;
-        return self.input[self.pos];
-    }
-
-    fn takeByte(self: *Parser) ?u8 {
-        if (self.pos >= self.input.len) return null;
-        const byte = self.input[self.pos];
-        self.pos += 1;
-        return byte;
+        return self.input[start..self.reader.seek];
     }
 
     /// **White Space**
     /// S (white space) consists of one or more space (#x20) characters, carriage returns, line feeds, or tabs.
     fn skipS(self: *Parser) void {
-        while (self.peekByte()) |c| {
+        while (true) {
+            const c = self.reader.peekByte() catch break;
             if (!std.ascii.isWhitespace(c)) break;
-            _ = self.takeByte();
+            _ = self.reader.takeByte() catch break;
         }
     }
 };
