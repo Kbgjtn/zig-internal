@@ -604,3 +604,41 @@ pub const Parser = struct {
         }
     }
 };
+
+test "detect" {
+    const cases: [1]struct {
+        name: []const u8,
+        v: []const u8,
+    } = .{
+        .{
+            .name = "",
+            .v =
+            \\<?xml version="1.0" encoding="utf-16" standalone="yes" ?>
+            \\<!DOCTYPE html SYSTEM "about:legacy-compat">
+            \\<![CDATA[<greeting>Hello, world!</greeting>]]>
+            \\<!-- Books Catalog Information -->
+            \\<catalog>
+            \\  <!-- Book Information -->
+            \\  <book id="bk101">
+            \\   <author>Gambardella, Matthew</author>
+            \\   <title>XML Developer's Guide</title>
+            \\   <genre>Computer</genre>
+            \\   <price>44.95</price>
+            \\   <publish_date>2000-10-01</publish_date>
+            \\   <description>An in-depth look at creating applications \\   with XML.</description>
+            \\  </book>
+            \\</catalog>
+            ,
+        },
+    };
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+
+    var parser = try Parser.init(allocator, cases[0].v);
+    defer parser.deinit();
+
+    while (parser.next() catch null) |event| {
+        event.print();
+    }
+}
