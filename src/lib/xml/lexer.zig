@@ -390,31 +390,47 @@ pub const Parser = struct {
         return error.UnexpectedToken;
     }
 
-    fn parseProcessingInstruction(self: *Parser) !Event {
-        const target_start = self.reader.seek;
+    fn parseQuotedString(self: *Parser) ![]const u8 {
+        const quote = try self.reader.takeByte();
+        if (quote != '"' and quote != '\'') return XMLError.UnexpectedToken;
 
+        const start = self.reader.seek;
         while (true) {
             const c = self.reader.takeByte() catch return XMLError.UnexpectedEOF;
-            if (!std.ascii.isAlphanumeric(c) and c != '_' and c != '-' and c != ':') break;
-            _ = try self.reader.takeByte();
+            if (c == quote) break;
         }
 
-        const target = self.input[target_start..self.reader.seek];
-        if (target.len == 0) return XMLError.UnexpectedToken;
+        return self.input[start .. self.reader.seek - 1];
+    }
+
+    fn parseProcessingInstruction(self: *Parser) !Event {
+        const cd_start = self.reader.seek - 2;
+        if (!std.mem.eql(u8, try self.reader.take(7), "[CDATA[")) {
+            return error.UnexpectedToken;
+        }
+
+        const target = self.input[cd_start..self.reader.seek];
 
         self.skipS();
 
-        // Parse data until '?>'
+        // parse data until '?>'
         const data_start = self.reader.seek;
         while (true) {
-            const c = self.reader.takeByte() catch return error.UnexpectedEOF;
-            if (c == '?') {
-                const next_byte = self.reader.takeByte() catch return error.UnexpectedEOF;
-                if (next_byte == '>') break;
+            const c = try self.reader.takeByte();
+            if (c == ']') {
+                const a = try self.reader.peekByte();
+                if (a == ']') {
+                    _ = try self.reader.takeByte();
+                    const b = try self.reader.peekByte();
+                    if (b == '>') {
+                        _ = try self.reader.takeByte();
+                        break;
+                    }
+                }
             }
         }
 
-        const data = self.input[data_start .. self.reader.seek - 2]; // Exclude '?>'
+        const data = self.input[data_start .. self.reader.seek - 3]; // Exclude ']]>'
         return .{
             .ProcessingInstruction = .{
                 .target = target,
