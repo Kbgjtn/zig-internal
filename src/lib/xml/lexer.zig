@@ -276,11 +276,21 @@ pub const Parser = struct {
                     return try self.parseComment();
                 }
 
-                if (byte == '[') {
-                    const cd_start = try self.reader.take(6);
-                    if (std.mem.eql(u8, cd_start, "[CDATA")) {
-                        return try self.parseProcessingInstruction();
-                    }
+                const next_byte = try self.reader.peekByte();
+                if (next_byte == '-') return try self.parseComment();
+                if (next_byte == '[') return try self.parseProcessingInstruction();
+
+                // Document Type Definition
+                // [28]     doctypedecl     ::= '<!DOCTYPE' S Name (S ExternalID)? S? ('[' intSubset ']' S?)? '>'
+                // [28a]    DeclSep         ::= PEReference | S
+                // [28b]    intSubset       ::= (markupdecl | DeclSep)*
+                // [29]     markupdecl      ::= elementdecl | AttlistDecl | EntityDecl | NotationDecl | PI | Comment
+
+                const doctype_decl = try self.reader.peek(7);
+                std.debug.print("doctype_decl {s}\n", .{doctype_decl});
+                if (std.mem.eql(u8, doctype_decl, "DOCTYPE")) {
+                    // parse doctype_decl
+                    return self.parseDoctype();
                 }
 
                 return error.UnexpectedToken;
