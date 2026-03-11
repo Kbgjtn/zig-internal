@@ -63,6 +63,46 @@ pub const Event = union(enum) {
         target: []const u8,
         data: []const u8,
     },
+    Doctype: struct {
+        name: []const u8,
+        external_id: ?ExternalID,
+        internal_subset: ?[]const u8,
+    },
+
+    pub fn print(self: Event) void {
+        switch (self) {
+            .XMLDecl => self.XMLDecl.print(),
+            .STag,
+            .ETag,
+            .Comment,
+            .Characters,
+            => |v| {
+                std.debug.print("{s}: {s}\n", .{ @tagName(self), v });
+            },
+            .ProcessingInstruction => |v| {
+                std.debug.print("Processing Instruction\n", .{});
+                std.debug.print("---------------------------\n", .{});
+                std.debug.print("target \t{s}\n", .{v.target});
+                std.debug.print("data \t{s}\n", .{v.data});
+            },
+            .Doctype => |v| {
+                std.debug.print("Doctype\n", .{});
+                std.debug.print("---------------------------\n", .{});
+                std.debug.print("name \t{s}\n", .{v.name});
+                if (v.external_id) |x| {
+                    std.debug.print("external_id type \t{any}\n", .{x.type});
+                    std.debug.print("external_id system_id \t{s}\n", .{x.system_id});
+                    std.debug.print("external_id public_id \t{any}\n", .{x.public_id});
+                }
+                if (v.internal_subset) |sub| {
+                    std.debug.print("internal_subset \t{s}\n", .{sub});
+                }
+            },
+            else => {
+                std.debug.print("{any}\n", .{self});
+            },
+        }
+    }
 };
 
 // An element:
