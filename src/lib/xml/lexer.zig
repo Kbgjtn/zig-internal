@@ -353,7 +353,41 @@ pub const Parser = struct {
                 .external_id = external_id,
                 .internal_subset = internal_subset,
             },
+        };
+    }
+
+    fn parseExternalID(self: *Parser) !?ExternalID {
+        const byte = try self.reader.peekByte();
+        if (byte == 'S') {
+            // SYSTEM
+            const external_id = try self.reader.peek(6);
+            if (!std.mem.eql(u8, external_id, "SYSTEM")) return error.UnexpectedToken;
+            self.reader.toss(6);
+            self.skipS();
+
+            // parse quoted string
+            const system_id = try self.parseQuotedString();
+            return .{ .type = .SYSTEM, .system_id = system_id };
         }
+
+        if (byte == 'P') {
+            // PUBLIC
+            const external_id = try self.reader.peek(6);
+            if (!std.mem.eql(u8, external_id, "PUBLIC")) return error.UnexpectedToken;
+            self.skipS();
+
+            const public_id = try self.parseQuotedString();
+            self.skipS();
+            const system_id = try self.parseQuotedString();
+
+            return .{
+                .type = .PUBLIC,
+                .public_id = public_id,
+                .system_id = system_id,
+            };
+        }
+
+        return error.UnexpectedToken;
     }
 
     fn parseProcessingInstruction(self: *Parser) !Event {
