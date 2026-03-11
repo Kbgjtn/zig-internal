@@ -299,8 +299,59 @@ pub const Parser = struct {
                 _ = try self.reader.takeByte(); // consume '?'
                 return try self.parseProcessingInstruction();
             },
-            else => {
-                return XMLError.UnexpectedToken;
+            else => return XMLError.UnexpectedToken,
+        }
+    }
+
+    fn parseDoctype(self: *Parser) !Event {
+        self.reader.toss(7); // consume 'DOCTYPE'
+        self.skipS();
+
+        // parse the root element name
+        const name_start = self.reader.seek;
+        while (true) {
+            const c = try self.reader.peekByte();
+            if (std.ascii.isWhitespace(c) or c == '>' or c == '[') break;
+            _ = try self.reader.takeByte();
+        }
+
+        const name = self.input[name_start..self.reader.seek];
+        std.debug.print("name {s}\n", .{name});
+
+        self.skipS();
+
+        // parse optional externalID
+        var external_id: ?ExternalID = null;
+
+        const next_byte = self.reader.peekByte() catch return error.UnexpectedEOF;
+        if (next_byte != 'S' or next_byte != 'P') {
+            external_id = try self.parseExternalID();
+        }
+
+        std.debug.print("external_id.type {}\nexternal_id.system_id {s}\n", .{ external_id.?.type, external_id.?.system_id });
+
+        // parse optional internal subset
+        var internal_subset: ?[]const u8 = null;
+        const byte = try self.reader.peekByte();
+        if (byte == '[') {
+            _ = try self.reader.takeByte(); // consume '['
+            internal_subset = try self.reader.takeDelimiterExclusive(']');
+            self.skipS();
+        }
+
+        if (internal_subset) |sub| {
+            std.debug.print("internal_subset {s}\n", .{sub});
+        }
+
+        // Must end with '>'
+        const closing = self.reader.takeByte() catch return XMLError.UnexpectedEOF;
+        if (closing != '>') return XMLError.UnexpectedToken;
+
+        return .{
+            .Doctype = .{
+                .name = name,
+                .external_id = external_id,
+                .internal_subset = internal_subset,
             },
         }
     }
