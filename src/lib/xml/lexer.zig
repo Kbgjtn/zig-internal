@@ -142,6 +142,12 @@ const XMLDecl = struct {
     }
 };
 
+const ExternalID = struct {
+    type: enum { SYSTEM, PUBLIC },
+    public_id: ?[]const u8 = null,
+    system_id: []const u8,
+};
+
 /// Stage 1: minimal scratch engine structure XML Document parser
 pub const Parser = struct {
     const XMLDeclStart = "<?xml";
